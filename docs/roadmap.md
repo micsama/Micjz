@@ -118,7 +118,7 @@ settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期
 
 - 极简网页：按记账周期列表、编辑、删除、CSV 导出。交互原型在 `web/`（假数据）。
 - 分类、账户、标签的网页管理（已在 SQLite，目前用命令行）。
-- B1 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
+- 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
 
 ### v3 简单统计
 
