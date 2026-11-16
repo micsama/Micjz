@@ -1,8 +1,30 @@
 <script lang="ts">
+  import EntryDays from "../../ui/EntryDays.svelte";
+  import PeriodHeader from "./PeriodHeader.svelte";
+  import StatFilters from "../../ui/StatFilters.svelte";
+
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import { app, breakdown, budgetOf, categoryOf, earning, elapsedDays, fallbackOf, isLatest, open, periodEntries, prefs, spendBars, spendIndex, spending, sumBy, todayIndex, topOf } from "../../lib/store.svelte";
-  import { badge, isYear, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
+  import {
+    app,
+    breakdown,
+    budgetOf,
+    categoryOf,
+    earning,
+    elapsedDays,
+    fallbackOf,
+    open,
+    prefs,
+    spendBars,
+    spendIndex,
+    spending,
+    sumBy,
+    todayIndex,
+    topOf,
+    statEntries,
+    filtering,
+  } from "../../lib/store.svelte";
+  import { badge, dateTime, isYear, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
   import { color, slices } from "../../lib/look";
   import { isSpend } from "../../lib/kinds";
   import { accountName, tagNames, view } from "../../lib/view";
@@ -11,13 +33,12 @@
   let picked = $state<string | null>(null);
   let day = $state<number | null>(null);
 
-  const list = $derived(periodEntries(app.period));
+  const list = $derived(statEntries(app.period));
   const spent = $derived(spending(list).cents);
   const earned = $derived(earning(list));
   const income = $derived(earned.cents);
-  const prev = $derived(spending(periodEntries(shiftPeriod(app.period, -1))).cents);
+  const prev = $derived(spending(statEntries(shiftPeriod(app.period, -1))).cents);
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
-  const latest = $derived(isLatest(app.period));
   const year = $derived(isYear(app.period));
   /** 柱子的单位：按月看是天，按年看是月。 */
   const unit = $derived(year ? "月" : "日");
@@ -41,25 +62,30 @@
   const idx = spendIndex;
   const parts = $derived(breakdown(list));
   const ring = $derived(slices(parts, idx, fallbackOf("expense").name, 6));
-  /** 一级分类下按二级汇总；记在一级上的不算。 */
+  /** 直接记在一级上的消费列为「未细分」。 */
   const subs = (name: string) =>
     sumBy(list, (e) => {
       const c = categoryOf(e.category_id);
-      return c && c.parent_id !== null && topOf(c).name === name ? c.name : null;
+      return c && topOf(c).name === name ? (c.parent_id === null ? "未细分" : c.name) : null;
     });
   const accounts = $derived(sumBy(list, (e) => accountName(e.account_id)));
   const merchants = $derived(sumBy(list, (e) => e.merchant).slice(0, 5));
   const tags = $derived(sumBy(list, (e) => tagNames(e.tag_ids)));
-  const biggest = $derived(list.filter(isSpend).sort((a, b) => b.amount_cents - a.amount_cents).slice(0, 3));
+  const biggest = $derived(
+    list
+      .filter(isSpend)
+      .sort((a, b) => b.amount_cents - a.amount_cents)
+      .slice(0, 3),
+  );
   const pickedSlice = $derived(ring.find((s) => s.name === picked));
   const pct = (cents: number) => `${Math.round((cents / (spent || 1)) * 100)}%`;
   const change = $derived(prev ? Math.round(((spent - prev) / prev) * 100) : null);
 
-  function go(delta: number) {
+  $effect(() => {
+    void [app.period, app.filter.account, app.filter.category, app.filter.tag];
     picked = null;
     day = null;
-    app.period = shiftPeriod(app.period, delta);
-  }
+  });
 
   /** 按年看时从某个月的柱子进到那个月。 */
   function drill(i: number) {
@@ -83,29 +109,32 @@
     <span></span>
   </header>
 
-  <div class="period">
-    <button onclick={() => go(-1)} aria-label="上一期"><Icon name="chevron-left" size={18} weight={2.6} /></button>
-    <div><h1>{label.title}</h1><small>{label.range || (year ? "全年" : label.year)}</small></div>
-    <button onclick={() => go(1)} disabled={latest} aria-label="下一期"><Icon name="chevron-right" size={18} weight={2.6} /></button>
-  </div>
+  <PeriodHeader />
+
+  <StatFilters />
 
   <section class="tiles">
     <div class="tile">
       <small>支出</small><b class="num">{money(spent)}</b>
-      {#if change !== null}<em class:up={change > 0}>{change > 0 ? "↑" : "↓"} 比{year ? "去年" : "上期"} {Math.abs(change)}%</em>{/if}
+      {#if change !== null}<em class:up={change > 0}
+          ><Icon name={change > 0 ? "arrow-up" : "arrow-down"} size={11} weight={2.4} />比{year ? "去年" : "上期"} {Math.abs(change)}%</em
+        >{/if}
     </div>
     <div class="tile"><small>收入</small><b class="num green">{money(income)}</b><em>{earned.count} 笔</em></div>
-    <div class="tile"><small>结余</small><b class="num" class:red={income < spent}>{money(income - spent, true)}</b><em>收入 − 支出</em></div>
-    <div class="tile"><small>{unit}均支出</small><b class="num">{money(avg)}</b><em>按 {elapsed} {year ? "个月" : "天"}算</em></div>
-    {#if budget !== null}
+    <div class="tile"><small>结余</small><b class="num" class:red={income < spent}>{money(income - spent, true)}</b></div>
+    <div class="tile"><small>{unit}均支出</small><b class="num">{money(avg)}</b></div>
+    {#if budget !== null && !filtering()}
       {@const fast = spent / budget > pace.elapsed / pace.days}
       <div class="tile wide">
         <div class="budget-head">
           <small>{year ? "全年" : ""}预算 {money(budget)}</small>
           <span class="num">{spent <= budget ? `剩 ${money(budget - spent)}` : `超 ${money(spent - budget)}`}</span>
         </div>
-        <div class="bar-track big"><i class:over={spent > budget} class:fast style:width="{Math.min(100, (spent / budget) * 100)}%"></i><b style:left="{Math.min(100, (pace.elapsed / pace.days) * 100)}%"></b></div>
-        <em>{year ? `每月 ${money(budget / 12)} × 12。` : ""}竖线是时间进度：已过 {pace.elapsed}/{pace.days} 天，花了预算的 {Math.round((spent / budget) * 100)}%{fast ? "，花得比时间快" : ""}</em>
+        <div class="bar-track big">
+          <i class:over={spent > budget} class:fast style:width="{Math.min(100, (spent / budget) * 100)}%"></i><b
+            style:left="{Math.min(100, (pace.elapsed / pace.days) * 100)}%"
+          ></b>
+        </div>
       </div>
     {/if}
   </section>
@@ -117,10 +146,17 @@
         {#if year}<button class="drill" onclick={() => drill(day!)}>看这个月<Icon name="chevron-right" size={12} weight={2.8} /></button>{/if}
       {:else}<span>最高一{year ? "个月" : "天"}</span><b class="num">{money(peak === 1 ? 0 : peak)}</b>{/if}
     </div>
-    <div class="chart" role="presentation" onpointerleave={() => !year && (day = null)}>
+    <div class="chart" role="presentation">
       <i class="avg" style:bottom="{(avg / peak) * 100}%"><span class="num">{unit}均 {money(avg)}</span></i>
       {#each bars as v, i (i)}
-        <button class="col" class:on={day === i} class:future={today >= 0 && i > today} onpointerenter={() => (day = i)} onclick={() => (day = i)} aria-label={dateOf(i)}>
+        <button
+          class="col"
+          class:on={day === i}
+          class:future={today >= 0 && i > today}
+          onclick={() => (day = day === i ? null : i)}
+          aria-pressed={day === i}
+          aria-label={dateOf(i)}
+        >
           <i style:height="{Math.max(2, (v / peak) * 100)}%"></i>
         </button>
       {/each}
@@ -188,12 +224,15 @@
       {#each biggest as e, i (e.id)}
         <button class="cat" onclick={() => open(e.id)}>
           <span class="rank num">{i + 1}</span>
-          <span class="cn">{view(e).title}<small>{categoryOf(e.category_id)?.name} · {dateOf(Math.floor((new Date(e.occurred_at).getTime() - start.getTime()) / 86400000))}</small></span>
+          <span class="cn">{view(e).title}<small>{categoryOf(e.category_id)?.name} · {dateTime(e.occurred_at)}</small></span>
           <span class="cv num">{money(e.amount_cents)}<small>{pct(e.amount_cents)}</small></span>
         </button>
       {/each}
     </section>
   {/if}
+  <h3 class="cap">明细 · {list.length} 笔</h3>
+  <EntryDays {list} account={app.filter.account ?? undefined} />
+  {#if !list.length}<p class="none">{filtering() ? "没有符合筛选的账目" : "这一期还没有账目"}</p>{/if}
   <div class="tail"></div>
 </div>
 
@@ -233,35 +272,6 @@
   .nav.scrolled .t {
     opacity: 1;
   }
-  .period {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px 6px;
-    text-align: center;
-  }
-  .period h1 {
-    margin: 0;
-    font-size: 28px;
-    font-weight: 700;
-  }
-  .period small {
-    font-size: 13px;
-    color: var(--label2);
-  }
-  .period button {
-    width: 34px;
-    height: 34px;
-    border: 0;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--fill);
-    color: var(--tint);
-  }
-  .period button:disabled {
-    color: var(--label3);
-  }
   .tiles {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -289,6 +299,9 @@
     font-weight: 700;
   }
   .tile em {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
     font-style: normal;
     font-size: 12px;
     color: var(--label2);

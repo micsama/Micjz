@@ -61,16 +61,7 @@
   }
 </script>
 
-<div
-  class="pushed"
-  role="presentation"
-  bind:this={el}
-  transition:slide
-  onpointerdown={down}
-  onpointermove={move}
-  onpointerup={up}
-  onpointercancel={up}
->
+<div class="pushed" role="presentation" bind:this={el} transition:slide onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}>
   {@render children()}
 </div>
 

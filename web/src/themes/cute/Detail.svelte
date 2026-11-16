@@ -25,14 +25,14 @@
   </header>
 
   <div class="wrap">
-  <span class="bubble"><Mark mark={v.mark} /></span>
-  <section class="ticket">
-    <h1>{v.title}</h1>
-    <p class="when num">{dateTime(entry.occurred_at)}</p>
-    <div class="dash"></div>
-    <button class="amount num" class:income={v.tone === "in"} onclick={() => edit(entry.id, "amount_cents")}>{v.amount}</button>
-    <small>点金额可以改哦</small>
-  </section>
+    <span class="bubble"><Mark mark={v.mark} /></span>
+    <section class="ticket">
+      <h1>{v.title}</h1>
+      <p class="when num">{dateTime(entry.occurred_at)}</p>
+      <div class="dash"></div>
+      <button class="amount num" class:income={v.tone === "in"} onclick={() => edit(entry.id, "amount_cents")}>{v.amount}</button>
+      <small>点金额可以改哦</small>
+    </section>
   </div>
 
   <section class="tiles">
@@ -67,7 +67,12 @@
   <div class="tail"></div>
 </div>
 
-<ActionSheet open={confirm} title="删掉之后几秒内还能撤销" actions={[{ label: "删掉它", danger: true, run: () => remove(entry.id) }]} oncancel={() => (confirm = false)} />
+<ActionSheet
+  open={confirm}
+  title="删掉之后几秒内还能撤销"
+  actions={[{ label: "删掉它", danger: true, run: () => remove(entry.id) }]}
+  oncancel={() => (confirm = false)}
+/>
 {#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
 
 <style>
@@ -79,9 +84,7 @@
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: calc(env(safe-area-inset-top) + 6px);
-    background:
-      radial-gradient(70% 30% at 50% 0%, color-mix(in srgb, var(--c) 35%, transparent), transparent),
-      var(--bg);
+    background: radial-gradient(70% 30% at 50% 0%, color-mix(in srgb, var(--c) 35%, transparent), transparent), var(--bg);
   }
   .top {
     padding: 4px 16px;
@@ -118,9 +121,11 @@
     text-align: center;
     box-shadow: 0 16px 34px -18px rgba(255, 111, 156, 0.55);
     /* 两侧打孔 */
-    -webkit-mask: radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
+    -webkit-mask:
+      radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
       radial-gradient(circle 12px at 100% 62%, transparent 11px, #000 12px) right / 51% 100% no-repeat;
-    mask: radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
+    mask:
+      radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
       radial-gradient(circle 12px at 100% 62%, transparent 11px, #000 12px) right / 51% 100% no-repeat;
   }
   .bubble {
@@ -261,7 +266,9 @@
     font-weight: 700;
     rotate: -4deg;
     box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.35);
-    transition: rotate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition:
+      rotate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+      scale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .polaroid:active {
     rotate: 0deg;
@@ -313,5 +320,8 @@
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 40px);
+  }
+  .sticky p {
+    overflow-wrap: anywhere;
   }
 </style>

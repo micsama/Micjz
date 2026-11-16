@@ -16,12 +16,20 @@ export function money(cents: number, sign = false): string {
 /** 金额输入框里的文本：去掉多余的 0。 */
 export const yuanInput = (cents: number) => (cents / 100).toFixed(2).replace(/\.?0+$/, "");
 
+/** 不带符号的金额文本转分，最多两位小数；「12.」算 12 元（键盘输到一半）。不合规为空。 */
+export function yuanCents(s: string): number | null {
+  const m = s.match(/^(\d+)(?:\.(\d{0,2}))?$/);
+  if (!m) return null;
+  const cents = Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 /** 金额文本转分；默认要大于 0，`signed` 允许负数（平账），但不能为 0。 */
 export function parseCents(s: string, signed = false): number | null {
-  const m = s.trim().replace(/^[−–]/, "-").match(/^(-)?(\d+)(?:\.(\d{1,2}))?$/);
-  if (!m || (m[1] && !signed)) return null;
-  const cents = (Number(m[2]) * 100 + Number((m[3] ?? "").padEnd(2, "0"))) * (m[1] ? -1 : 1);
-  return cents === 0 || (!signed && cents < 0) ? null : cents;
+  const t = s.trim().replace(/^[−–]/, "-");
+  const negative = t.startsWith("-");
+  const cents = negative && !signed ? null : yuanCents(negative ? t.slice(1) : t);
+  return cents ? (negative ? -cents : cents) : null;
 }
 
 const ymd = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -98,3 +106,25 @@ export function shiftPeriod(key: string, delta: number): string {
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 }
+
+/** 当前期与前一期的同期截止时间；已结束的周期比较整期。 */
+export function comparisonEnds(period: string, day: number, now = new Date()) {
+  const current = periodRange(period, day);
+  const previous = periodRange(shiftPeriod(period, -1), day);
+  if (now >= current.end) return { current: current.end, previous: previous.end };
+  const target = new Date(
+    now.getFullYear() - (isYear(period) ? 1 : 0),
+    now.getMonth() - (isYear(period) ? 0 : 1),
+    1,
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    now.getMilliseconds(),
+  );
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(now.getDate(), last));
+  return { current: now, previous: new Date(Math.min(target.getTime(), previous.end.getTime())) };
+}
+
+/** 时间格式可混用 UTC 和时区偏移，排序必须比较实际时刻。 */
+export const newestFirst = (a: { occurred_at: string }, b: { occurred_at: string }) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at);

@@ -2,31 +2,12 @@
   // 底部弹出面板：带拖动条，下拉或点背景关闭；键盘弹出时跟着上移。
   import type { Snippet } from "svelte";
   import { fade } from "svelte/transition";
-  import { motion } from "./nav.svelte";
+  import { keyboardInset, motion } from "./nav.svelte";
 
   let { open, onclose, children }: { open: boolean; onclose: () => void; children: Snippet } = $props();
 
   let panel = $state<HTMLDivElement>();
-  let keyboard = $state(0);
   let drag: { id: number; y0: number; y: number; t: number; v: number } | null = null;
-
-  $effect(() => {
-    const vv = window.visualViewport;
-    if (!vv || !open) return;
-    // 面板常驻、只切 open：每次打开先量一次、关闭归零，否则上一个输入框留下的键盘高度会把选择类面板顶到半空。
-    const sync = () => {
-      const gap = window.innerHeight - vv.height - vv.offsetTop;
-      keyboard = gap > 80 ? gap : 0;
-    };
-    sync();
-    vv.addEventListener("resize", sync);
-    vv.addEventListener("scroll", sync);
-    return () => {
-      vv.removeEventListener("resize", sync);
-      vv.removeEventListener("scroll", sync);
-      keyboard = 0;
-    };
-  });
 
   function rise(_: Element) {
     const { easing, reduce } = motion();
@@ -66,7 +47,7 @@
 
 {#if open}
   <div class="backdrop" transition:fade={{ duration: 260 }} onclick={onclose} role="presentation"></div>
-  <div class="sheet" bind:this={panel} transition:rise style:--kb="{keyboard}px" role="dialog" aria-modal="true">
+  <div class="sheet" bind:this={panel} transition:rise use:keyboardInset role="dialog" aria-modal="true">
     <div class="grab" role="presentation" onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}>
       <span></span>
     </div>
@@ -85,7 +66,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    bottom: var(--kb);
+    bottom: var(--kb, 0px);
     z-index: 41;
     max-height: calc(100% - env(safe-area-inset-top) - 24px);
     display: flex;

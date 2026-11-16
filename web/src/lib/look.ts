@@ -29,5 +29,4 @@ export function brand(a: Pick<Account, "name" | "brand">): { bg: string; path?: 
 /** 新建账户时按名称猜机构，省一次点选。 */
 export const guessBrand = (name: string) => LOGOS.find(([k]) => name.includes(k))?.[0] ?? null;
 
-export const cardLabel = (card: { type: "debit" | "credit"; number: string }) =>
-  `${card.type === "debit" ? "储蓄卡" : "信用卡"} ·· ${card.number.slice(-4)}`;
+export const cardLabel = (card: { type: "debit" | "credit"; number: string }) => `${card.type === "debit" ? "储蓄卡" : "信用卡"} ·· ${card.number.slice(-4)}`;

@@ -11,8 +11,8 @@ export interface Theme {
   name: string;
   /** 设置页里的一句介绍。 */
   blurb: string;
-  /** 账目列表；传 `account` 时是推入的账户明细页。 */
-  List: Component<{ account?: number }>;
+  /** 账目列表。 */
+  List: Component;
   Detail: Component<{ entry: Entry }>;
   Settings: Component;
   Stats: Component;

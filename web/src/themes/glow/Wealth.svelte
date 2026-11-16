@@ -27,7 +27,6 @@
   const shown = $derived(focus ? bal(focus) : plus + minus);
   const mask = (text: string) => (app.hideBalance ? "••••••" : text);
 
-
   function actions(a: Account): SwipeAction[] {
     const out: SwipeAction[] = [];
     if (a.card) out.push({ icon: "copy", label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
@@ -44,7 +43,14 @@
     <span class="glass"></span>
     <div class="cap">
       <span>{focus ? focus.name : "净资产"}</span>
-      <button class="eye" onclick={(e) => { e.stopPropagation(); toggleBalance(); }} aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}>
+      <button
+        class="eye"
+        onclick={(e) => {
+          e.stopPropagation();
+          toggleBalance();
+        }}
+        aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}
+      >
         <Icon name={app.hideBalance ? "eye-slash" : "eye"} size={18} weight={2} />
       </button>
     </div>
@@ -55,8 +61,16 @@
     {#if assets.length}
       <div class="stack">
         {#each assets as a (a.id)}
-          <button class:dim={focus && focus.id !== a.id} style:flex={bal(a)} style:background={brand(a).bg}
-            onclick={(e) => { e.stopPropagation(); focus = focus?.name === a.name ? null : a; }} aria-label={a.name}></button>
+          <button
+            class:dim={focus && focus.id !== a.id}
+            style:flex={bal(a)}
+            style:background={brand(a).bg}
+            onclick={(e) => {
+              e.stopPropagation();
+              focus = focus?.name === a.name ? null : a;
+            }}
+            aria-label={a.name}
+          ></button>
         {/each}
       </div>
     {/if}
@@ -66,26 +80,35 @@
     </div>
   </section>
 
-
-  <h3 class="cap2">账户<button class="add" onclick={() => { holdKeyboard(); editing = "new"; }}><Icon name="plus" size={15} weight={2.4} />添加</button></h3>
+  <h3 class="cap2">
+    账户<button
+      class="add"
+      onclick={() => {
+        holdKeyboard();
+        editing = "new";
+      }}><Icon name="plus" size={15} weight={2.4} />添加</button
+    >
+  </h3>
   <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
     {#each app.catalog.accounts as a, i (a.id)}
       <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
-      <SwipeRow actions={actions(a)}>
-      <button class="row" onclick={() => openAccount(a.id)}>
-        <AccountLogo account={a} />
-        <span class="main">
-          <span class="name">{a.name}{#if i === 0}<em>默认</em>{/if}</span>
-          <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
-        </span>
-        <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
-        <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
-      </button>
-      </SwipeRow>
+        <SwipeRow actions={actions(a)}>
+          <button class="row" onclick={() => openAccount(a.id)}>
+            <AccountLogo account={a} />
+            <span class="main">
+              <span class="name"
+                >{a.name}{#if i === 0}<em>默认</em>{/if}</span
+              >
+              <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
+            </span>
+            <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
+            <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+          </button>
+        </SwipeRow>
       </div>
     {/each}
   </div>
-  <p class="foot">右边是此刻的余额，由所有账目推算，期初余额也是一笔平账。点账户按月或按年看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制卡号或编辑账户。</p>
+  <p class="foot">长按拖动排序</p>
   <div class="tail"></div>
 </div>
 
@@ -141,10 +164,7 @@
     border-radius: 24px;
     overflow: hidden;
     color: #fff;
-    background:
-      radial-gradient(100% 120% at 0% 0%, #2f7cf6 0%, transparent 60%),
-      radial-gradient(90% 100% at 100% 100%, #13b98a 0%, transparent 60%),
-      #13233f;
+    background: radial-gradient(100% 120% at 0% 0%, #2f7cf6 0%, transparent 60%), radial-gradient(90% 100% at 100% 100%, #13b98a 0%, transparent 60%), #13233f;
     box-shadow: 0 14px 30px -14px rgba(19, 90, 200, 0.6);
   }
   .glass {
@@ -204,7 +224,9 @@
     border: 0;
     border-radius: 3px;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
-    transition: opacity 0.25s, transform 0.25s;
+    transition:
+      opacity 0.25s,
+      transform 0.25s;
   }
   /* 条很细，点击区域上下放大。 */
   .stack button::before {
@@ -278,11 +300,15 @@
     color: inherit;
     font: inherit;
     text-align: left;
-    transition: background-color 0.35s, transform 0.3s;
+    transition:
+      background-color 0.35s,
+      transform 0.3s;
   }
   .row:active {
     background: var(--press);
-    transition: background-color 0s, transform 0.45s;
+    transition:
+      background-color 0s,
+      transform 0.45s;
     transform: scale(0.985);
   }
   .item {

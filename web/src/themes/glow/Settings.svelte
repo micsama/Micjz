@@ -48,7 +48,9 @@
         </div>
         <span class="head">
           <span class="name">{t.name}</span>
-          <span class="radio">{#if themeState.id === t.id}<Icon name="check" size={13} weight={3.4} />{/if}</span>
+          <span class="radio"
+            >{#if themeState.id === t.id}<Icon name="check" size={13} weight={3.4} />{/if}</span
+          >
         </span>
         <small>{t.blurb}</small>
       </button>
@@ -63,14 +65,19 @@
       <span class="value">{prefs.cycleDay === 1 ? "自然月" : `每月 ${prefs.cycleDay} 号起`}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
-    <button class="row" onclick={() => { holdKeyboard("decimal"); editing = "budget"; }}>
+    <button
+      class="row"
+      onclick={() => {
+        holdKeyboard("decimal");
+        editing = "budget";
+      }}
+    >
       <span class="fi" style:--fc="var(--c0)"><Icon name="target" size={18} weight={2.2} /></span>
       <span class="label">每期预算</span>
       <span class="value num">{prefs.budget === null ? "不设" : money(prefs.budget)}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
   </div>
-  <p class="foot">首页的支出、预算和统计都按这个周期算。</p>
 
   <h3 class="cap">服务</h3>
   <div class="group">
@@ -161,11 +168,17 @@
     color: var(--label);
     font: inherit;
     text-align: left;
-    box-shadow: var(--shadow-card), 0 0 0 2px transparent;
-    transition: box-shadow 0.25s, transform 0.25s;
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 2px transparent;
+    transition:
+      box-shadow 0.25s,
+      transform 0.25s;
   }
   .theme.on {
-    box-shadow: var(--shadow-card), 0 0 0 2.5px var(--tint);
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 2.5px var(--tint);
   }
   .theme:active {
     transform: scale(0.97);
@@ -298,11 +311,6 @@
   .chev {
     display: flex;
     color: var(--label3);
-  }
-  .foot {
-    margin: 7px 32px 0;
-    font-size: 13px;
-    color: var(--label2);
   }
   .center {
     justify-content: center;

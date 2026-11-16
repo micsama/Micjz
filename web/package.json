@@ -6,11 +6,14 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+    "format": "prettier --write src",
+    "check": "prettier --check src && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tsconfig/svelte": "^5.0.8",
+    "prettier": "3.6.2",
+    "prettier-plugin-svelte": "3.4.0",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",

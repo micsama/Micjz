@@ -63,7 +63,7 @@ CREATE TABLE recognitions (
 ) STRICT;
 
 -- id 是账目自己的 ID；截图来的 recognition_id 指向那次识别，也是确认的幂等键。
--- 支出、收入有分类（最细一级）；转账从 account_id 到 to_account_id；平账的金额是差额，可正可负。
+-- 支出、收入有分类（一级或二级，有二级也可只记一级）；转账从 account_id 到 to_account_id；平账的金额是差额，可正可负。
 -- 时间一律 UTC（flow::stamp）。
 CREATE TABLE entries (
   id             TEXT PRIMARY KEY,

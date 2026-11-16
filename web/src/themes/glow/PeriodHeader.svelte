@@ -9,9 +9,8 @@
 
   /**
    * `onshift` 拿到切换方向（-1 往前、1 往后、0 换单位），页面用它决定内容怎么进场。
-   * `account` 让面板里的金额只算这个账户。
    */
-  let { onshift, account }: { onshift?: (delta: number) => void; account?: number } = $props();
+  let { onshift }: { onshift?: (delta: number) => void } = $props();
 
   const year = $derived(isYear(app.period));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
@@ -20,7 +19,7 @@
   let open = $state(false);
   /** 面板里正在看的年份，只在按月时用。 */
   let shown = $state(0);
-  const totals = $derived(open ? monthTotals(account) : new Map<string, Sum>());
+  const totals = $derived(open ? monthTotals() : new Map<string, Sum>());
   const thisYear = $derived(Number(currentPeriod(true)));
   const firstYear = $derived(Math.min(thisYear, ...[...totals.keys()].map((k) => Number(k.slice(0, 4)))));
   const years = $derived(Array.from({ length: thisYear - firstYear + 1 }, (_, i) => String(thisYear - i)));
@@ -71,7 +70,9 @@
       <button class:on={year} onclick={() => unit(true)}>年</button>
     </div>
     <button class="arrow" onclick={() => go(-1)} aria-label={year ? "上一年" : "上个周期"}><Icon name="chevron-left" size={17} weight={2.6} /></button>
-    <button class="arrow" onclick={() => go(1)} disabled={latest} aria-label={year ? "下一年" : "下个周期"}><Icon name="chevron-right" size={17} weight={2.6} /></button>
+    <button class="arrow" onclick={() => go(1)} disabled={latest} aria-label={year ? "下一年" : "下个周期"}
+      ><Icon name="chevron-right" size={17} weight={2.6} /></button
+    >
   </div>
 
   {#if open}
@@ -237,7 +238,9 @@
     padding: 10px;
     border-radius: 20px;
     background: var(--card);
-    box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 0.5px var(--sep);
+    box-shadow:
+      0 18px 50px -12px rgba(0, 0, 0, 0.35),
+      0 0 0 0.5px var(--sep);
     transform-origin: 24px 0;
   }
   .yr {
@@ -279,7 +282,9 @@
     background: none;
     color: var(--label);
     font: inherit;
-    transition: background-color 0.2s, transform 0.2s;
+    transition:
+      background-color 0.2s,
+      transform 0.2s;
   }
   .grid button:active {
     transform: scale(0.94);

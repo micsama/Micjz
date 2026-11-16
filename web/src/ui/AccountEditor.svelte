@@ -78,7 +78,14 @@
 <div class="body">
   <div class="name">
     <AccountLogo account={{ name: name || "?", brand }} size={44} />
-    <input bind:this={nameInput} bind:value={name} placeholder="名称，如「工资卡」" enterkeyhint="done" oninput={typed} onkeydown={(e) => e.key === "Enter" && submit()} />
+    <input
+      bind:this={nameInput}
+      bind:value={name}
+      placeholder="名称，如「工资卡」"
+      enterkeyhint="done"
+      oninput={typed}
+      onkeydown={(e) => e.key === "Enter" && submit()}
+    />
   </div>
   {#if error?.at === "name"}<p class="hint bad">{error.text}</p>{/if}
 
@@ -103,7 +110,16 @@
     {/each}
   </div>
   {#if cardType !== "none"}
-    <input class="num" bind:this={numberInput} bind:value={number} inputmode="numeric" placeholder="完整卡号" enterkeyhint="done" onkeydown={(e) => e.key === "Enter" && submit()} oninput={() => (error = null)} />
+    <input
+      class="num"
+      bind:this={numberInput}
+      bind:value={number}
+      inputmode="numeric"
+      placeholder="完整卡号"
+      enterkeyhint="done"
+      onkeydown={(e) => e.key === "Enter" && submit()}
+      oninput={() => (error = null)}
+    />
   {/if}
   {#if error?.at === "card"}<p class="hint bad">{error.text}</p>{/if}
   <p class="hint">识别时模型看到账户名、机构、卡类型和卡号尾号；完整卡号只存在自己的库里。</p>

@@ -74,7 +74,12 @@
   <div class="tail"></div>
 </div>
 
-<ActionSheet open={confirm} title="删除后可以在几秒内撤销" actions={[{ label: "删除账目", danger: true, run: () => remove(entry.id) }]} oncancel={() => (confirm = false)} />
+<ActionSheet
+  open={confirm}
+  title="删除后可以在几秒内撤销"
+  actions={[{ label: "删除账目", danger: true, run: () => remove(entry.id) }]}
+  oncancel={() => (confirm = false)}
+/>
 {#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
 
 <style>
@@ -97,7 +102,9 @@
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    transition: background-color 0.2s, box-shadow 0.2s;
+    transition:
+      background-color 0.2s,
+      box-shadow 0.2s;
   }
   .bar.scrolled {
     background: var(--bar-bg);
@@ -161,7 +168,9 @@
     font-size: 40px;
     color: white;
     background: linear-gradient(145deg, color-mix(in oklab, var(--c) 50%, white), var(--c));
-    box-shadow: 0 12px 26px -10px var(--c), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    box-shadow:
+      0 12px 26px -10px var(--c),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
   h1 {
     position: relative;
@@ -298,7 +307,9 @@
     height: 134px;
     object-fit: cover;
     border-radius: 9px;
-    box-shadow: 0 0 0 0.5px var(--sep), 0 6px 16px -6px rgba(0, 0, 0, 0.3);
+    box-shadow:
+      0 0 0 0.5px var(--sep),
+      0 6px 16px -6px rgba(0, 0, 0, 0.3);
   }
   .shot-text {
     display: grid;
@@ -327,5 +338,9 @@
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 40px);
+  }
+  .diff .value {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 </style>

@@ -38,6 +38,13 @@
   --c5: #34c759;
   --c6: #ff453a;
   --c7: #8e8e93;
+  /* 首页支出卡：深色渐变上的浅色字 */
+  --hero-bg: linear-gradient(125deg, color-mix(in oklab, var(--c1) 58%, #17213b), color-mix(in oklab, var(--c4) 50%, #17213b));
+  --hero-fg: #ffffff;
+  --hero-good: #9bf2ba;
+  --hero-bad: #ffaaaa;
+  --hero-alert: #ff7878;
+  --hero-track: rgba(255, 255, 255, 0.15);
 }
 @media (prefers-color-scheme: dark) {
   [data-theme="glow"] {

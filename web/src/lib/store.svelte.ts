@@ -2,13 +2,23 @@
 import type { Account, Category, Entry, FieldKey, Fields, FlowKind } from "./types";
 import { catalog, seed } from "./mock";
 import { effect, isIncome, isSpend, listed } from "./kinds";
-import { dayKey, isYear, periodOf, periodRange, within } from "./format";
+import { dayKey, newestFirst, isYear, periodOf, periodRange, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
 export type Tab = "list" | "stats" | "wealth" | "settings";
 
-/** 推入的页面：账目详情、统计、某个账户的账目（和账目页同一个页面，按账户筛选）。 */
-export type Page = { kind: "entry"; id: string } | { kind: "account"; id: number };
+/** 推入的页面：账目详情。 */
+export type Page = { kind: "entry"; id: string };
+
+/** 统计页的筛选：三项可组合，空为不限。一直保留到手动取消，切标签不丢。 */
+export interface Filter {
+  account: number | null;
+  /** 一级或二级分类；一级包含它下面的二级。 */
+  category: number | null;
+  tag: number | null;
+}
+export type Dim = keyof Filter;
+const ANY: Filter = { account: null, category: null, tag: null };
 
 /** 用户设置；原型里存 localStorage，正式版存 SQLite。 */
 interface Prefs {
@@ -79,9 +89,13 @@ export const app = $state({
   /** 隐藏余额，在别人面前打开时用。 */
   hideBalance: localStorage.getItem(HIDE) === "1",
   tab: "list" as Tab,
+  creating: false,
   /** 推入的页面，栈顶是当前页。 */
   stack: [] as Page[],
   sheet: null as { id: string; field: FieldKey } | null,
+  filter: { ...ANY } as Filter,
+  /** 正在选的筛选项，弹出选择面板。 */
+  picking: null as Dim | null,
   toast: null as Toast | null,
   /** 已删、可撤销的账目：撤销期过了才真正删除。 */
   hidden: [] as string[],
@@ -104,7 +118,7 @@ export const fallbackOf = (kind: FlowKind) => app.catalog.categories.find((c) =>
 
 const live = (e: Entry) => !app.hidden.includes(e.id);
 
-/** 周期里的账目；`account` 为账户明细，见 `listed`。 */
+/** 周期里的账目；`account` 为账户视角，见 `listed`。 */
 export function periodEntries(period: string, account?: number): Entry[] {
   return app.entries.filter((e) => live(e) && listed(e, account) && within(periodOf(e.occurred_at, prefs.cycleDay), period));
 }
@@ -124,11 +138,22 @@ export const earning = (list: Entry[]) => sum(list, isIncome);
 
 export function byDay(list: Entry[]): { day: string; at: string; entries: Entry[]; spent: number }[] {
   const groups = new Map<string, Entry[]>();
-  for (const e of list) {
+  for (const e of [...list].sort(newestFirst)) {
     const k = dayKey(e.occurred_at);
     groups.set(k, [...(groups.get(k) ?? []), e]);
   }
   return [...groups.entries()].map(([day, entries]) => ({ day, at: entries[0].occurred_at, entries, spent: spending(entries).cents }));
+}
+
+/** 截至 `last` 那天（含）的最近 `n` 天每天的支出，从早到晚。不分周期，首页走势用。 */
+export function recentSpend(last: Date, n: number): { date: Date; cents: number }[] {
+  const days = Array.from({ length: n }, (_, i) => ({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() - n + 1 + i), cents: 0 }));
+  const index = new Map(days.map((d, i) => [dayKey(d.date.toISOString()), i]));
+  for (const e of app.entries) {
+    const i = live(e) && isSpend(e) ? index.get(dayKey(e.occurred_at)) : undefined;
+    if (i !== undefined) days[i].cents += e.amount_cents;
+  }
+  return days;
 }
 
 /** 周期内的支出柱：按月看每天一根，按年看每月一根；下标 0 是第一天或 1 月。 */
@@ -178,8 +203,7 @@ export function byMonth(list: Entry[]): Map<string, Entry[]> {
 }
 
 /** 每个月周期的支出，跳转面板用。 */
-export const monthTotals = (account?: number): Map<string, Sum> =>
-  new Map([...byMonth(app.entries.filter((e) => live(e) && listed(e, account)))].map(([k, es]) => [k, spending(es)]));
+export const monthTotals = (): Map<string, Sum> => new Map([...byMonth(app.entries.filter((e) => live(e) && listed(e)))].map(([k, es]) => [k, spending(es)]));
 
 /** 按某个维度汇总支出，从大到小。 */
 export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null): { name: string; cents: number; count: number }[] {
@@ -199,15 +223,43 @@ export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null
 export const breakdown = (list: Entry[]) => sumBy(list, (e) => topOf(categoryOf(e.category_id)!).name);
 
 /** 支出一级分类在 `breakdown` 里的颜色序号，按名称找。 */
-export const spendIndex = (name: string) => Math.max(0, tops("expense").findIndex((c) => c.name === name));
+export const spendIndex = (name: string) =>
+  Math.max(
+    0,
+    tops("expense").findIndex((c) => c.name === name),
+  );
 
 export const open = (id: string) => app.stack.push({ kind: "entry", id });
-/** 统计只有一个：底部「统计」标签。别处的入口都切到它，看的是同一个周期。 */
-export function openStats() {
+/** 统计只有一个：底部「统计」标签。别处的入口都切到它，看的是同一个周期；带了筛选就换成这组筛选。 */
+export function openStats(filter?: Partial<Filter>) {
   app.stack = [];
   app.tab = "stats";
+  if (filter) app.filter = { ...ANY, ...filter };
 }
-export const openAccount = (id: number) => app.stack.push({ kind: "account", id });
+/** 看某个账户就是按这个账户筛选的统计。 */
+export const openAccount = (id: number) => openStats({ account: id });
+
+export const filtering = () => Object.values(app.filter).some((v) => v !== null);
+/** 选好一项筛选；`keep` 为真时不收起面板（选了一级分类，接着选二级）。 */
+export const setFilter = (dim: Dim, id: number | null, keep = false) => {
+  app.filter[dim] = id;
+  if (!keep) app.picking = null;
+};
+export const clearFilter = () => {
+  app.filter = { ...ANY };
+  app.picking = null;
+};
+
+/** 统计看的账目：周期内、符合筛选。按账户筛时连同转账、平账一起算进来（见 `listed`）。 */
+export function statEntries(period: string): Entry[] {
+  const { account, category, tag } = app.filter;
+  return periodEntries(period, account ?? undefined).filter((e) => {
+    if (tag !== null && !e.tag_ids.includes(tag)) return false;
+    if (category === null) return true;
+    const c = categoryOf(e.category_id);
+    return !!c && (c.id === category || c.parent_id === category);
+  });
+}
 
 /** 调整账户顺序；排第一的是默认账户，识别不出账户时用它。接服务器后写 `accounts.position`，原型里只改内存。 */
 export function moveAccount(from: number, to: number) {
@@ -278,6 +330,19 @@ export function update(id: string, patch: Partial<Fields>) {
     return;
   }
   Object.assign(e, patch);
+}
+
+/** 手记一笔要填的字段；ID、入账时刻由存储方生成，手记的没有识别。 */
+export type EntryInput = Omit<Entry, "id" | "recognition_id" | "created_at">;
+
+/** 手记一笔。原型里只进内存；接服务器后由服务器生成 ID（UUIDv7）。记完跳到它所在的周期。 */
+export function addEntry(fields: EntryInput) {
+  const now = new Date().toISOString();
+  app.entries.push({ ...fields, id: crypto.randomUUID(), recognition_id: null, created_at: now });
+  app.entries.sort(newestFirst);
+  app.tab = "list";
+  app.stack = [];
+  app.period = periodOf(fields.occurred_at, prefs.cycleDay);
 }
 
 export function remove(id: string) {

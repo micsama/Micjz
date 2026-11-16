@@ -9,7 +9,12 @@
   <div class="toast" transition:fly={{ y: 40, duration: 380, easing: backOut }} role="status">
     <span>{t.text}</span>
     {#if t.undo}
-      <button onclick={() => { t.undo?.(); app.toast = null; }}>撤销</button>
+      <button
+        onclick={() => {
+          t.undo?.();
+          app.toast = null;
+        }}>撤销</button
+      >
     {/if}
   </div>
 {/if}

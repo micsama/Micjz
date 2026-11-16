@@ -1,7 +1,7 @@
 <script lang="ts">
   // 悬浮的玻璃胶囊，选中项下面垫一块会滑动的玻璃，配合 iOS 的液态玻璃风格。正中间是「记一笔」，不是标签。
   import Icon, { type IconName } from "../../ui/Icon.svelte";
-  import { app, toast, type Tab } from "../../lib/store.svelte";
+  import { app, type Tab } from "../../lib/store.svelte";
   type Slot = { id: Tab; label: string; icon: IconName } | null;
   const slots: Slot[] = [
     { id: "list", label: "账目", icon: "list" },
@@ -22,7 +22,7 @@
         <span>{t.label}</span>
       </button>
     {:else}
-      <button class="add" aria-label="记一笔" onclick={() => toast("记一笔还在做")}>
+      <button class="add" aria-label="记一笔" onclick={() => (app.creating = true)}>
         <span class="plus"><Icon name="plus" size={22} weight={2.6} /></span>
       </button>
     {/if}

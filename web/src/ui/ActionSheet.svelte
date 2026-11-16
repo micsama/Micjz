@@ -20,7 +20,13 @@
     <div class="group">
       <p>{title}</p>
       {#each actions as a (a.label)}
-        <button class:danger={a.danger} onclick={() => { oncancel(); a.run(); }}>{a.label}</button>
+        <button
+          class:danger={a.danger}
+          onclick={() => {
+            oncancel();
+            a.run();
+          }}>{a.label}</button
+        >
       {/each}
     </div>
     <button class="cancel" onclick={oncancel}>取消</button>

@@ -5,13 +5,74 @@ import { money } from "./format";
 
 type Node = [name: string, key: string];
 const TREE: [FlowKind, Node, Node[]][] = [
-  ["expense", ["🍜 餐饮", "food"], [["🍱 三餐", "meal"], ["☕️ 咖啡饮品", "coffee"], ["🍓 零食水果", "snack"], ["🍲 聚餐", "dining"]]],
-  ["expense", ["🚇 交通", "transport"], [["🚌 公交地铁", "transit"], ["🚕 打车", "taxi"], ["⛽️ 加油充电", "fuel"], ["🅿️ 停车", "parking"], ["✈️ 火车飞机", "rail"]]],
-  ["expense", ["🛍️ 购物", "shopping"], [["🧻 日用", "daily"], ["👕 服饰", "clothing"], ["🎧 数码", "digital"], ["🛋️ 家居", "home"]]],
-  ["expense", ["🏠 居住", "housing"], [["🔑 房租", "rent"], ["💡 水电燃气", "utilities"], ["📶 话费网费", "telecom"], ["🏢 物业", "property"]]],
-  ["expense", ["🎮 娱乐", "fun"], [["📺 会员订阅", "subscription"], ["🕹️ 游戏", "game"], ["🎬 电影演出", "show"], ["🧳 旅行", "travel"]]],
-  ["expense", ["🏥 医疗", "medical"], [["💊 药品", "medicine"], ["🩺 门诊", "clinic"]]],
-  ["expense", ["🎁 人情", "social"], [["🧧 红包", "redpacket"], ["🎀 礼物", "gift"], ["🍻 请客", "treat"]]],
+  [
+    "expense",
+    ["🍜 餐饮", "food"],
+    [
+      ["🍱 三餐", "meal"],
+      ["☕️ 咖啡饮品", "coffee"],
+      ["🍓 零食水果", "snack"],
+      ["🍲 聚餐", "dining"],
+    ],
+  ],
+  [
+    "expense",
+    ["🚇 交通", "transport"],
+    [
+      ["🚌 公交地铁", "transit"],
+      ["🚕 打车", "taxi"],
+      ["⛽️ 加油充电", "fuel"],
+      ["🅿️ 停车", "parking"],
+      ["✈️ 火车飞机", "rail"],
+    ],
+  ],
+  [
+    "expense",
+    ["🛍️ 购物", "shopping"],
+    [
+      ["🧻 日用", "daily"],
+      ["👕 服饰", "clothing"],
+      ["🎧 数码", "digital"],
+      ["🛋️ 家居", "home"],
+    ],
+  ],
+  [
+    "expense",
+    ["🏠 居住", "housing"],
+    [
+      ["🔑 房租", "rent"],
+      ["💡 水电燃气", "utilities"],
+      ["📶 话费网费", "telecom"],
+      ["🏢 物业", "property"],
+    ],
+  ],
+  [
+    "expense",
+    ["🎮 娱乐", "fun"],
+    [
+      ["📺 会员订阅", "subscription"],
+      ["🕹️ 游戏", "game"],
+      ["🎬 电影演出", "show"],
+      ["🧳 旅行", "travel"],
+    ],
+  ],
+  [
+    "expense",
+    ["🏥 医疗", "medical"],
+    [
+      ["💊 药品", "medicine"],
+      ["🩺 门诊", "clinic"],
+    ],
+  ],
+  [
+    "expense",
+    ["🎁 人情", "social"],
+    [
+      ["🧧 红包", "redpacket"],
+      ["🎀 礼物", "gift"],
+      ["🍻 请客", "treat"],
+    ],
+  ],
   ["expense", ["✨ 其他", "other"], []],
   ["income", ["💰 工资", "salary"], []],
   ["income", ["🏆 奖金", "bonus"], []],
@@ -72,7 +133,7 @@ const SPEND: Seed[] = [
 const BALANCES: Record<number, number> = { [WECHAT]: 328640, [SALARY_CARD]: 26821055, [CREDIT]: -412780, [ALIPAY]: 1263000 };
 
 function rng(seed: number) {
-  return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  return () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
 }
 
 /** 本地时区的 ISO 8601。 */
@@ -95,7 +156,17 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
 
   /** 手填的账没有截图；`first` 给了就是截图来的，`first` 是快捷指令里第一眼看到的草稿相对最终值的差异。 */
   function add(at: Date, d: Draft, first?: Partial<Recognition["first"]>) {
-    const e: Entry = { to_account_id: null, merchant: null, note: null, tag_ids: [], ...d, id: id(at), recognition_id: null, occurred_at: iso(at), created_at: iso(at) };
+    const e: Entry = {
+      to_account_id: null,
+      merchant: null,
+      note: null,
+      tag_ids: [],
+      ...d,
+      id: id(at),
+      recognition_id: null,
+      occurred_at: iso(at),
+      created_at: iso(at),
+    };
     if (first) {
       e.recognition_id = id(at);
       const shown = { ...e, ...first };

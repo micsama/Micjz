@@ -62,7 +62,7 @@ entries
   recognition_id TEXT NULL    → recognitions，截图来的才有；确认的幂等键
   kind           TEXT         expense | income | transfer | adjust
   amount_cents   INTEGER      金额，单位分，人民币；平账是带符号的差额
-  category_id    INTEGER NULL → categories，最细一级；支出、收入必填，其余为空
+  category_id    INTEGER NULL → categories，一级或二级（有二级也可只选一级）；支出、收入必填，其余为空
   account_id     INTEGER      → accounts（截图看不出就用优先级第一的账户）；转账的转出方
   to_account_id  INTEGER NULL → accounts，转账的转入方
   merchant       TEXT NULL

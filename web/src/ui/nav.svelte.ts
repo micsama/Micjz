@@ -24,3 +24,22 @@ export function holdKeyboard(mode: "text" | "decimal" | "numeric" = "text") {
   proxy.inputMode = mode;
   proxy.focus();
 }
+
+/** 文字键盘出现时，让页面或面板的底边跟随可视区域。 */
+export function keyboardInset(node: HTMLElement) {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const sync = () => {
+    const gap = window.innerHeight - viewport.height - viewport.offsetTop;
+    node.style.setProperty("--kb", `${gap > 80 ? gap : 0}px`);
+  };
+  sync();
+  viewport.addEventListener("resize", sync);
+  viewport.addEventListener("scroll", sync);
+  return {
+    destroy() {
+      viewport.removeEventListener("resize", sync);
+      viewport.removeEventListener("scroll", sync);
+    },
+  };
+}

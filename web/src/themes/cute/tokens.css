@@ -32,6 +32,13 @@
   --c5: #9be37a;
   --c6: #ff9a8a;
   --c7: #c9b8b0;
+  /* 首页支出卡：奶油渐变上的深色字 */
+  --hero-bg: linear-gradient(125deg, #ffd3e1, #ffe6cc 65%, #fff1b8);
+  --hero-fg: #5a3842;
+  --hero-good: #217a45;
+  --hero-bad: #c3293b;
+  --hero-alert: #d73849;
+  --hero-track: rgba(90, 56, 66, 0.07);
 }
 @media (prefers-color-scheme: dark) {
   [data-theme="cute"] {
@@ -45,4 +52,38 @@
     --toast-bg: #ffeef3;
     --toast-fg: #4a3a3f;
   }
+}
+
+/* 软糖对共用组件的外观调整：共用组件只用变量，不认识具体主题，差异都写在这里。 */
+[data-theme="cute"] .entry-days .group {
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+[data-theme="cute"] .entry-days .swipe {
+  margin-bottom: 10px;
+  border-radius: var(--radius-group);
+  overflow: hidden;
+  box-shadow: 0 6px 18px -10px rgba(255, 111, 156, 0.4);
+}
+[data-theme="cute"] .entry-days .row {
+  border-radius: var(--radius-group);
+  padding: 12px;
+}
+[data-theme="cute"] .entry-days .icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c) 28%, var(--card));
+  color: var(--label);
+  box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--c) 35%, transparent);
+}
+[data-theme="cute"] .entry-days .title {
+  font-weight: 800;
+}
+[data-theme="cute"] .entry-days .day {
+  font-weight: 700;
+}
+[data-theme="cute"] .category-grid .category-icon {
+  border-radius: 50%;
 }

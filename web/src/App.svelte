@@ -7,6 +7,7 @@
   import Pushed from "./ui/Pushed.svelte";
   import Sheet from "./ui/Sheet.svelte";
   import FieldEditor from "./ui/FieldEditor.svelte";
+  import NewEntry from "./ui/NewEntry.svelte";
   import Toast from "./ui/Toast.svelte";
 
   const t = $derived(theme(themeState.id));
@@ -20,6 +21,7 @@
 
 <div
   class="base"
+  inert={app.creating}
   class:dragging={nav.dragging}
   style:transform={depth ? `translateX(${-30 * (1 - nav.drag)}%)` : ""}
   style:--dim={depth ? 1 - nav.drag : 0}
@@ -28,14 +30,12 @@
   <t.TabBar />
 </div>
 
-{#each app.stack as page, i (page.kind === "entry" ? page.id : `${page.kind}-${i}`)}
-  {#if page.kind === "account"}
-    <Pushed onback={back}>{#key t.id}<t.List account={page.id} />{/key}</Pushed>
-  {:else}
-    {@const entry = find(page.id)}
-    {#if entry}
-      <Pushed onback={back}>{#key t.id}<t.Detail {entry} />{/key}</Pushed>
-    {/if}
+{#each app.stack as page (page.id)}
+  {@const entry = find(page.id)}
+  {#if entry}
+    <Pushed onback={back}
+      >{#key t.id}<t.Detail {entry} />{/key}</Pushed
+    >
   {/if}
 {/each}
 
@@ -44,6 +44,8 @@
     {#key app.sheet.field}<FieldEditor entry={sheetEntry} key={app.sheet.field} />{/key}
   {/if}
 </Sheet>
+
+{#if app.creating}<NewEntry />{/if}
 
 <Toast />
 
