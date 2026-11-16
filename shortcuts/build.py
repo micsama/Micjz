@@ -1,13 +1,13 @@
 """生成并签名快捷指令「记一笔」。
 
-用法：python3 shortcuts/build.py [base_url]
-  base_url 默认 http://127.0.0.1:8730；token 读自 config.toml。
+用法：python3 shortcuts/build.py [base_url] [--token TOKEN]
+  base_url 默认 http://127.0.0.1:8730；token 缺省读本地 config.toml，须与服务器 config.toml 一致。
 产物：shortcuts/记一笔.shortcut（含 token，不入库），双击导入。
 """
 
+import argparse
 import plistlib
 import subprocess
-import sys
 import tempfile
 import tomllib
 import uuid
@@ -252,8 +252,12 @@ def build(base: str, token: str) -> None:
 
 
 def main() -> None:
-    base = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8730"
-    token = tomllib.loads((ROOT / "config.toml").read_text())["token"]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("base", nargs="?", default="http://127.0.0.1:8730")
+    ap.add_argument("--token", help="缺省读本地 config.toml")
+    args = ap.parse_args()
+    base = args.base
+    token = args.token or tomllib.loads((ROOT / "config.toml").read_text())["token"]
     build(base.rstrip("/"), token)
     workflow = {
         "WFWorkflowActions": actions,

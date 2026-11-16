@@ -8,9 +8,11 @@
 ```sh
 python3 shortcuts/build.py                          # 默认 http://127.0.0.1:8730
 python3 shortcuts/build.py http://192.168.1.5:8730  # 手机连 Mac
+python3 shortcuts/build.py https://<服务器地址>/micjz --token <服务器 token>  # 服务器（Caddy 按 /micjz 前缀转发）
 ```
 
-读取 `config.toml` 的 token，生成并签名 `shortcuts/记一笔.shortcut`（含 token，已 gitignore），双击导入。
+token 须与服务端 `config.toml` 的 `token` 一致；不传 `--token` 时读本地 `config.toml`。生成后也可在快捷指令第二个【文本】动作里直接改。
+产物 `shortcuts/记一笔.shortcut`（含 token，已 gitignore），双击导入。
 下面的动作清单是生成内容的说明，也可手动对照排查。
 
 ## 动作
@@ -22,7 +24,7 @@ python3 shortcuts/build.py http://192.168.1.5:8730  # 手机连 Mac
 1. 【文本】服务地址 →【设定变量】`base`
    - Mac 本地调试：`http://127.0.0.1:8730`
    - 手机连 Mac：`http://<Mac 局域网 IP>:8730`（`ipconfig getifaddr en0`；`config.toml` 的 listen 改为 `0.0.0.0:8730`）
-   - 上线：`https://<你的域名>`
+   - 服务器：`https://<服务器地址>/micjz`（以后换域名只改这里）
 2. 【文本】`config.toml` 里的 token →【设定变量】`token`
 3. 【截屏】
 4. 【获取 URL 内容】
