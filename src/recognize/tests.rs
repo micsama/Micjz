@@ -40,7 +40,7 @@ fn invalid_fields_become_empty() {
     );
     assert_eq!(d.amount_cents, None, "金额不合规置空，让用户填");
     assert_eq!((d.category.as_str(), d.subcategory), (OTHER, None));
-    assert_eq!(d.account, None);
+    assert_eq!(d.account, "微信", "不在列表里的账户用默认账户");
     assert_eq!(d.merchant.as_deref(), Some("123"));
     assert_eq!(d.occurred_at, now());
     assert_eq!(d.note, None);
@@ -83,6 +83,10 @@ async fn mock_always_ok() {
         .await;
     assert_eq!(r.outcome, Outcome::Ok);
     assert!(r.prompt.contains("coffee: 餐饮/咖啡饮品"));
+    assert!(
+        r.prompt.contains("看不出省略：\n微信\n银行卡"),
+        "账户逐行列出"
+    );
     assert!(r.parameters.contains("json_object"));
 }
 

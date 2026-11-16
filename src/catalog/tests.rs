@@ -18,7 +18,8 @@ fn seed_data() {
     let cat = load(&db()).unwrap();
     assert!(cat.category(Kind::Expense, OTHER).is_some());
     assert!(cat.category(Kind::Income, OTHER).is_some());
-    assert_eq!(cat.accounts, ["微信", "银行卡"]);
+    assert_eq!(cat.account_names().collect::<Vec<_>>(), ["微信", "银行卡"]);
+    assert_eq!(cat.default_account(), "微信");
     assert_eq!(
         cat.by_key(Kind::Expense, "coffee"),
         Some(("餐饮", Some("咖啡饮品")))
@@ -62,6 +63,39 @@ fn add_rename_remove() {
 
     run(&mut conn, "account add 现金").unwrap();
     assert!(run(&mut conn, "account add 现金").is_err());
+    run(&mut conn, "account add 招行 信用卡 6225888800001234").unwrap();
+    assert!(run(&mut conn, "account add 某卡 储蓄卡 12ab").is_err());
+    run(&mut conn, "account move 招行 1").unwrap();
+    let cat = load(&conn).unwrap();
+    assert_eq!(cat.default_account(), "招行", "第一位是默认账户");
+    assert_eq!(
+        cat.account_lines(),
+        "招行（信用卡 尾号 1234）\n微信\n银行卡\n现金",
+        "模型只看尾号"
+    );
+    assert!(
+        run(&mut conn, "account list")
+            .unwrap()
+            .contains("招行  信用卡 6225888800001234  0 笔")
+    );
+    for name in ["微信", "银行卡", "现金"] {
+        run(&mut conn, &format!("account rm {name}")).unwrap();
+    }
+    assert!(
+        run(&mut conn, "account rm 招行").is_err(),
+        "最后一个账户不能删"
+    );
+
+    run(&mut conn, "category move 支出 餐饮/聚餐 1").unwrap();
+    run(&mut conn, "category move 支出 其他 1").unwrap();
+    let cat = load(&conn).unwrap();
+    let first = &cat.categories(Kind::Expense)[0];
+    assert_eq!(first.name, OTHER);
+    assert_eq!(
+        cat.category(Kind::Expense, "餐饮").unwrap().subs[0].1,
+        "聚餐"
+    );
+    assert!(run(&mut conn, "category move 支出 其他 0").is_err());
     run(&mut conn, "tag rename 恋爱 约会").unwrap();
     assert_eq!(load(&conn).unwrap().tags, ["约会"]);
     assert!(run(&mut conn, "nope").is_err());
@@ -71,7 +105,10 @@ fn add_rename_remove() {
 fn used_ones_cannot_be_removed() {
     let mut conn = db();
     conn.execute_batch(
-        "INSERT INTO entries (id, kind, amount_cents, category_id, account_id, occurred_at,
+        "INSERT INTO recognitions (draft_id, outcome, model, upload_ms, model_ms, image_sha256,
+                                   image_bytes, image_path, prompt, parameters, raw, origin)
+         VALUES ('e1', 'ok', 'm', 0, 0, 's', 0, 'p', 'p', '{}', '', '{}');
+         INSERT INTO entries (id, kind, amount_cents, category_id, account_id, occurred_at,
                               created_at)
          SELECT 'e1', 'expense', 100, c.id, a.id, 'now', 'now'
          FROM categories c, accounts a WHERE c.key = 'coffee' AND a.name = '微信';

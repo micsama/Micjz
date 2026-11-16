@@ -12,8 +12,13 @@ micjz category add    支出 学习 study            # 加一级分类
 micjz category add    支出 学习/书籍 books        # 加二级分类
 micjz category rename 支出 学习/书籍 图书
 micjz category rm     支出 学习/图书
+micjz category move   支出 餐饮/咖啡饮品 1        # 挪到同级第 1 位
 
-micjz account list | add 现金 | rename 现金 零钱 | rm 零钱
+micjz account list                               # 按优先级列出：名称、卡类型和完整卡号、账目数
+micjz account add  现金
+micjz account add  招行信用卡 信用卡 "6225 8888 0000 1234"
+micjz account move 招行信用卡 1                    # 第 1 位是识别不出账户时的默认账户
+micjz account rename 现金 零钱 | rm 零钱
 micjz tag     list | add 出差 | rename 出差 差旅 | rm 差旅
 
 micjz /path/to/config.toml category list         # 指定配置文件
@@ -21,8 +26,9 @@ micjz /path/to/config.toml category list         # 指定配置文件
 
 - 类型写 `支出` 或 `收入`；分类路径是 `一级` 或 `一级/二级`。
 - 每个分类必须有 key：小写英文、数字或下划线，全局唯一。模型只看叶子分类（没有二级的一级、二级）的 key。
-- 有账目的分类、账户、标签不能删；一级下还有二级时要先删二级；「其他」不能删、不能改名。
-- 新加的分类排在最后；名称不能含 `/` 和换行。
+- 有账目的分类、账户、标签不能删；一级下还有二级时要先删二级；「其他」不能删、不能改名；最后一个账户不能删。
+- 新加的分类、账户排在同级最后，用 `move` 调整优先级：决定菜单顺序和模型分不清时的先后。名称不能含 `/` 和换行。
+- 卡号完整存在库里，`account list` 可复制核对；发给模型的只有卡类型和尾号。
 
 ## 部署
 

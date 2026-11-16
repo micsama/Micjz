@@ -62,27 +62,31 @@ entries
   kind         TEXT         expense | income
   amount_cents INTEGER      金额，单位分，人民币
   category_id  INTEGER      → categories，最细一级（选了二级就是二级）
-  account_id   INTEGER NULL → accounts（截图看不出就空）
+  account_id   INTEGER      → accounts（截图看不出就用优先级第一的账户）
   merchant     TEXT NULL
   occurred_at  TEXT         交易时间；截图没有则用确认时间
   note         TEXT NULL
-  created_at   TEXT
+  created_at   TEXT         确认时刻
 
 entry_tags
   entry_id     TEXT
   tag_id       INTEGER      → tags，纯展示/筛选用的标签，如「恋爱」
   PRIMARY KEY (entry_id, tag_id)
 
-categories (id, kind, parent_id, name, key)   两级分类，key 给模型
-accounts   (id, name)
-tags       (id, name)
+categories   (id, position, kind, parent_id, name, key)   两级分类，key 给模型
+accounts     (id, position, name, card_type, card_number)   卡号完整存，只把尾号给模型
+tags         (id, name)
+recognitions (draft_id, ...)   一次识别的输入输出和原始草稿；entries.id 指向它
+requests     (id, at, ...)     通过鉴权的请求日志
 ```
+
+完整表结构见 [表结构梳理](blueprints/single-source.md)：每个事实只存一处，表之间用外键连。
 
 分类、账户、标签存数据库，命令行增删改，有账目引用的不能删；见 [分类进库](blueprints/categories-db.md)。提示词从 `prompt.txt` 加载。
 
 识别规则（写进 prompt，服务器再校验）：
 
-- 看不到的字段省略，不许编；服务器对不合规字段置空，不让整次识别失败。
+- 补全分三层：模型只填看得到的字段，看不到的省略，不许编；服务器对不合规字段当作没给，再按规则补默认值（分类「其他」、账户取优先级第一、时间取识别时刻）；补不了的（金额）留空，用户补完再确认。不让整次识别失败。
 - 多个金额时取实付金额，不取原价、优惠、余额。
 - 分类、账户只能从给定列表里选；标签不由 AI 打。
 - 截图里可见的商品名作为备注默认值；看不到就留空，不拿商家名充数。

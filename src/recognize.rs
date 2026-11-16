@@ -94,7 +94,7 @@ impl Recognizer {
         let ds = match self {
             Recognizer::Mock => {
                 return Recognized {
-                    draft: mock_draft(now),
+                    draft: mock_draft(now, cat),
                     outcome: Outcome::Ok,
                     reason: None,
                     model: "mock".to_owned(),
@@ -124,7 +124,11 @@ impl Recognizer {
             }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "识别失败，返回空白草稿");
-                (Draft::blank(now), Outcome::Error, Some(format!("{e:#}")))
+                (
+                    Draft::blank(now, cat),
+                    Outcome::Error,
+                    Some(format!("{e:#}")),
+                )
             }
         };
         Recognized {
@@ -226,7 +230,7 @@ fn parse_output(raw: &str) -> anyhow::Result<Output> {
     Ok(Output::from_json(&v))
 }
 
-/// 逐字段校验；不合规的字段置空（分类回到「其他」，时间回到当前），并记日志。
+/// 逐字段校验；不合规的字段当作没给，再补默认值（分类「其他」、账户取第一个、时间取当前），并记日志。
 fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
     let mut dropped = Vec::new();
     let mut check = |name: &'static str, raw: &Option<String>, ok: bool| {
@@ -244,7 +248,8 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
     let category = out.category.as_deref().and_then(|k| cat.by_key(kind, k));
     check("category", &out.category, category.is_some());
     let (category, subcategory) = category.unwrap_or((OTHER, None));
-    let account = out.account.filter(|a| cat.accounts.contains(a));
+    let account = out.account.clone().filter(|a| cat.has_account(a));
+    check("account", &out.account, account.is_some());
     // 时间与识别时刻相差不到 30 分钟就用识别时刻：截图只到分钟，当前时间更准。
     let parsed_at = out.occurred_at.as_deref().and_then(parse_local_time);
     check("occurred_at", &out.occurred_at, parsed_at.is_some());
@@ -260,23 +265,22 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
         amount_cents,
         category: category.to_owned(),
         subcategory: subcategory.map(str::to_owned),
-        account,
+        account: account.unwrap_or_else(|| cat.default_account().to_owned()),
         merchant: out.merchant,
         occurred_at,
         note: out.item,
-        ..Draft::blank(now)
+        ..Draft::blank(now, cat)
     }
 }
 
-fn mock_draft(now: DateTime<FixedOffset>) -> Draft {
+fn mock_draft(now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
     Draft {
         amount_cents: Some(3250),
         category: "餐饮".to_owned(),
         subcategory: Some("咖啡饮品".to_owned()),
-        account: Some("微信".to_owned()),
         merchant: Some("瑞幸咖啡".to_owned()),
         note: Some("生椰拿铁".to_owned()),
-        ..Draft::blank(now)
+        ..Draft::blank(now, cat)
     }
 }
 
@@ -324,7 +328,7 @@ fn prompt(now: DateTime<FixedOffset>, cat: &Catalog) -> String {
         .expect("启动时已校验 prompt.txt")
         .replace("{now}", &now.format("%Y-%m-%d %H:%M:%S").to_string())
         .replace("{categories}", &categories)
-        .replace("{accounts}", &cat.accounts.join(" / "))
+        .replace("{accounts}", &cat.account_lines())
 }
 
 #[cfg(test)]

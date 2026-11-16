@@ -18,8 +18,10 @@ use crate::{
 
 pub const SCHEMA: &str = "
 -- parent_id 为空是一级；每个分类都有模型 key。外键保证有账目或二级的分类删不掉。
+-- position 是同级内的优先级：菜单顺序、模型分类模糊时的先后。
 CREATE TABLE categories (
   id        INTEGER PRIMARY KEY,
+  position  INTEGER NOT NULL,
   kind      TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
   parent_id INTEGER REFERENCES categories(id),
   name      TEXT NOT NULL,
@@ -28,9 +30,14 @@ CREATE TABLE categories (
 CREATE UNIQUE INDEX idx_categories_name
   ON categories(kind, coalesce(parent_id, 0), name);
 
+-- position 越小越优先，识别不出账户时取第一个；卡号完整存，只把尾号给模型。
 CREATE TABLE accounts (
-  id   INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE
+  id          INTEGER PRIMARY KEY,
+  position    INTEGER NOT NULL,
+  name        TEXT NOT NULL UNIQUE,
+  card_type   TEXT CHECK (card_type IN ('debit', 'credit')),
+  card_number TEXT,
+  CHECK ((card_type IS NULL) = (card_number IS NULL))
 );
 
 CREATE TABLE tags (
@@ -38,18 +45,34 @@ CREATE TABLE tags (
   name TEXT NOT NULL UNIQUE
 );
 
--- category_id 指向最细一级：选了二级就是二级。
+-- 一次识别一行，主键是草稿 ID。识别时刻看 /recognize 那条 requests。
+CREATE TABLE recognitions (
+  draft_id     TEXT PRIMARY KEY,
+  outcome      TEXT NOT NULL CHECK (outcome IN ('ok', 'rejected', 'error')),
+  model        TEXT NOT NULL,
+  upload_ms    INTEGER NOT NULL,
+  model_ms     INTEGER NOT NULL,
+  image_sha256 TEXT NOT NULL,
+  image_bytes  INTEGER NOT NULL,
+  image_path   TEXT NOT NULL,
+  prompt       TEXT NOT NULL,
+  parameters   TEXT NOT NULL,
+  raw          TEXT NOT NULL,
+  reason       TEXT,
+  origin       TEXT NOT NULL
+);
+
+-- id 即草稿 ID；有这行就是已确认，created_at 是确认时刻。category_id 指向最细一级。
 CREATE TABLE entries (
-  id           TEXT PRIMARY KEY,
+  id           TEXT PRIMARY KEY REFERENCES recognitions(draft_id),
   kind         TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   category_id  INTEGER NOT NULL REFERENCES categories(id),
-  account_id   INTEGER REFERENCES accounts(id),
+  account_id   INTEGER NOT NULL REFERENCES accounts(id),
   merchant     TEXT,
   occurred_at  TEXT NOT NULL,
   note         TEXT,
-  created_at   TEXT NOT NULL,
-  draft_id     TEXT
+  created_at   TEXT NOT NULL
 );
 CREATE INDEX idx_entries_occurred ON entries(occurred_at);
 
@@ -59,25 +82,7 @@ CREATE TABLE entry_tags (
   PRIMARY KEY (entry_id, tag_id)
 );
 
--- outcome：ok / rejected（模型说不是支付页）/ error（调用或解析失败）
-CREATE TABLE recognitions (
-  draft_id     TEXT PRIMARY KEY,
-  at           TEXT NOT NULL,
-  outcome      TEXT NOT NULL,
-  model        TEXT NOT NULL,
-  elapsed_ms   INTEGER,
-  image_sha256 TEXT,
-  image_bytes  INTEGER,
-  image_path   TEXT,
-  prompt       TEXT NOT NULL,
-  parameters   TEXT NOT NULL,
-  raw          TEXT,
-  reason       TEXT,
-  origin       TEXT,
-  timings      TEXT,
-  confirmed_at TEXT
-);
-
+-- 访问日志：通过鉴权的每个请求一行。draft_id 原样记收到的，不设外键。
 CREATE TABLE requests (
   id         INTEGER PRIMARY KEY,
   at         TEXT NOT NULL,
@@ -88,10 +93,9 @@ CREATE TABLE requests (
   draft_id   TEXT,
   field      TEXT,
   value      TEXT,
-  reply      TEXT,
   error      TEXT
 );
-CREATE INDEX requests_draft ON requests(draft_id);
+CREATE INDEX idx_requests_draft ON requests(draft_id);
 ";
 
 /// 当前表结构版本，存在库的 `PRAGMA user_version`；`deploy/db/convert.py` 也读这个文件。
@@ -120,8 +124,6 @@ pub struct RequestRow<'a> {
     pub status: u16,
     pub elapsed_ms: u64,
     pub trace: &'a crate::api::Trace,
-    /// 响应 JSON，已去掉 draft。
-    pub reply: Option<&'a str>,
     pub error: Option<&'a str>,
 }
 
@@ -160,25 +162,31 @@ impl Db {
     }
 
     /// 当前分类、账户、标签。
-    pub fn catalog(&self) -> rusqlite::Result<Catalog> {
+    pub fn catalog(&self) -> anyhow::Result<Catalog> {
         catalog::load(&self.conn())
     }
 
-    /// 以草稿 ID 入账并标记识别已确认，同一事务；已存在则不变（重复确认是同一笔）。
+    /// 草稿 ID 是否由本服务识别发出。
+    pub fn has_recognition(&self, draft_id: &str) -> rusqlite::Result<bool> {
+        self.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM recognitions WHERE draft_id = ?1)",
+            [draft_id],
+            |r| r.get(0),
+        )
+    }
+
+    /// 以草稿 ID 入账，账目和标签同一事务；已存在则不变（重复确认是同一笔）。
     /// 名称在这里换成 id；草稿期间被删改的分类、账户、标签会让入账失败。返回是否新插入。
     pub fn save(&self, d: &Draft, amount_cents: i64) -> anyhow::Result<bool> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let now = flow::now().to_rfc3339();
         let category_id = category_id(&tx, d)?;
-        let account_id = match &d.account {
-            Some(name) => Some(catalog::name_id(&tx, "accounts", name)?),
-            None => None,
-        };
+        let account_id = catalog::name_id(&tx, "accounts", &d.account)?;
         let inserted = tx.execute(
             "INSERT INTO entries (id, kind, amount_cents, category_id, account_id,
-                                  merchant, occurred_at, note, created_at, draft_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                                  merchant, occurred_at, note, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO NOTHING",
             params![
                 d.id,
@@ -190,7 +198,6 @@ impl Db {
                 d.occurred_at.to_rfc3339(),
                 d.note,
                 now,
-                d.id,
             ],
         )? == 1;
         if inserted {
@@ -201,10 +208,6 @@ impl Db {
                 )?;
             }
         }
-        tx.execute(
-            "UPDATE recognitions SET confirmed_at = ?2 WHERE draft_id = ?1 AND confirmed_at IS NULL",
-            params![d.id, now],
-        )?;
         tx.commit()?;
         Ok(inserted)
     }
@@ -212,8 +215,8 @@ impl Db {
     pub fn record_request(&self, r: &RequestRow<'_>) -> rusqlite::Result<()> {
         self.conn().execute(
             "INSERT INTO requests (at, method, path, status, elapsed_ms, draft_id, field, value,
-                                   reply, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                                   error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 r.at,
                 r.method,
@@ -223,7 +226,6 @@ impl Db {
                 r.trace.draft_id,
                 r.trace.field,
                 r.trace.value,
-                r.reply,
                 r.error,
             ],
         )?;
@@ -235,18 +237,18 @@ impl Db {
         &self,
         r: &Recognized,
         image: &Image<'_>,
-        timings: &str,
+        upload_ms: u64,
     ) -> rusqlite::Result<()> {
         self.conn().execute(
-            "INSERT INTO recognitions (draft_id, at, outcome, model, elapsed_ms, image_sha256,
+            "INSERT INTO recognitions (draft_id, outcome, model, upload_ms, model_ms, image_sha256,
                                        image_bytes, image_path, prompt, parameters, raw, reason,
-                                       origin, timings)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                       origin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 r.draft.id,
-                flow::now().to_rfc3339(),
                 r.outcome.as_str(),
                 r.model,
+                upload_ms as i64,
                 r.model_ms as i64,
                 image.sha256,
                 image.bytes as i64,
@@ -256,7 +258,6 @@ impl Db {
                 r.raw,
                 r.reason,
                 serde_json::to_string(&r.draft).expect("草稿可序列化"),
-                timings,
             ],
         )?;
         Ok(())

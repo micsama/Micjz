@@ -8,7 +8,6 @@ use std::{
 
 use axum::{
     Extension, Json, Router,
-    body::{Body, to_bytes},
     extract::{
         DefaultBodyLimit, Multipart, Request, State, multipart::MultipartRejection,
         rejection::JsonRejection,
@@ -81,26 +80,6 @@ async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: 
         return resp;
     }
     let error = resp.extensions().get::<Failure>().map(|f| f.0.clone());
-    let (parts, body) = resp.into_parts();
-    let bytes = match to_bytes(body, MAX_BODY_BYTES).await {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!(error = %e, "读取响应体失败");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(Reply::done("响应失败".to_owned())),
-            )
-                .into_response();
-        }
-    };
-    let reply = serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()
-        .map(|mut v| {
-            if let Some(o) = v.as_object_mut() {
-                o.remove("draft");
-            }
-            v.to_string()
-        });
     let trace = std::mem::take(&mut *slot.lock().expect("trace 锁未中毒"));
     let row = db::RequestRow {
         at: &at,
@@ -109,13 +88,12 @@ async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: 
         status: status.as_u16(),
         elapsed_ms,
         trace: &trace,
-        reply: reply.as_deref(),
         error: error.as_deref(),
     };
     if let Err(e) = state.db.record_request(&row) {
         tracing::error!(error = %e, "保存请求记录失败");
     }
-    Response::from_parts(parts, Body::from(bytes))
+    resp
 }
 
 async fn not_found() -> ApiError {
@@ -145,7 +123,7 @@ fn load_catalog(state: &AppState) -> Result<Catalog, ApiError> {
     state.db.catalog().map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("读取分类失败：{e}"),
+            format!("读取分类失败：{e:#}"),
         )
     })
 }
@@ -199,7 +177,6 @@ async fn recognize_handler(
     let now = flow::now();
     let r = state.recognizer.recognize(&image, mime, now, &cat).await;
     trace.lock().expect("trace 锁未中毒").draft_id = Some(r.draft.id.clone());
-    let timings = serde_json::json!({ "upload_ms": upload_ms, "model_ms": r.model_ms }).to_string();
     let image_meta = db::Image {
         sha256: &sha,
         bytes: image.len(),
@@ -207,7 +184,7 @@ async fn recognize_handler(
     };
     state
         .db
-        .record_recognition(&r, &image_meta, &timings)
+        .record_recognition(&r, &image_meta, upload_ms)
         .map_err(|e| {
             tracing::error!(error = ?e, "保存识别记录失败");
             ApiError(StatusCode::INTERNAL_SERVER_ERROR, "保存识别记录失败".into())
@@ -288,6 +265,15 @@ async fn step_handler(
     let cat = load_catalog(&state)?;
     let before = Draft::decode(&req.draft, &cat).map_err(bad_request)?;
     trace.lock().expect("trace 锁未中毒").draft_id = Some(before.id.clone());
+    let known = state.db.has_recognition(&before.id).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("读取识别记录失败：{e}"),
+        )
+    })?;
+    if !known {
+        return Err(bad_request(format!("草稿不存在：{}", before.id)));
+    }
     tracing::info!(id = %before.id, field = %req.field, "步骤");
     match flow::step(before, &req.field, &req.value, flow::now(), &cat).map_err(bad_request)? {
         Outcome::Reply(reply) => {

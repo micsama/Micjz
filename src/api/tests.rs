@@ -135,17 +135,17 @@ async fn recognize_then_confirm_saves_once() {
     assert_eq!(s.count("SELECT COUNT(*) FROM entries"), 1);
     assert_eq!(
         s.count(
-            "SELECT count(*) FROM requests r JOIN entries e ON e.draft_id = r.draft_id
-             WHERE r.status = 200 AND r.reply NOT LIKE '%\"draft\"%'"
+            "SELECT count(*) FROM requests r JOIN entries e ON e.id = r.draft_id
+             WHERE r.status = 200"
         ),
         3,
-        "识别 + 两次确认，都按 draft_id 记下，响应去掉 draft"
+        "识别 + 两次确认，都按 draft_id 记下"
     );
     assert_eq!(
         s.count("SELECT count(*) FROM requests WHERE field = 'action' AND value = '✅ 确认记账'"),
         2
     );
-    assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.draft_id=r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%' AND r.origin IS NOT NULL AND r.confirmed_at IS NOT NULL"), 1);
+    assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.id = r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%'"), 1);
     let conn = rusqlite::Connection::open(&s.db_path).unwrap();
     let path: String = conn
         .query_row("SELECT image_path FROM recognitions LIMIT 1", [], |r| {
@@ -229,6 +229,16 @@ async fn errors_are_json_done() {
     assert_eq!(status, 400);
     assert_done(&v, "请求无效");
 
+    // 格式正确但不是本服务发出的草稿。
+    let stranger = serde_json::to_value(crate::flow::menu(
+        &crate::flow::Draft::blank(crate::flow::now(), &crate::catalog::defaults()),
+        crate::flow::now(),
+    ))
+    .unwrap();
+    let (status, v) = s.step(&stranger, "✅ 确认记账").await;
+    assert_eq!(status, 400);
+    assert_done(&v, "草稿不存在");
+
     let (_, menu) = s.recognize("image", PNG).await;
     let (status, v) = s.step(&menu, "不存在的选项").await;
     assert_eq!(status, 400);
@@ -250,7 +260,7 @@ async fn errors_are_json_done() {
     );
     assert_eq!(
         s.count("SELECT count(*) FROM requests WHERE status = 400 AND error LIKE '请求无效%'"),
-        6
+        7
     );
     assert_eq!(
         s.count(

@@ -37,7 +37,8 @@ impl Kind {
     }
 }
 
-/// 识别结果与用户修改都落在这里；看不出的字段为空，由用户补。
+/// 识别结果与用户修改都落在这里。模型看不出的字段由服务器补默认值，
+/// 补不了的（金额）为空，由用户补。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Draft {
     pub id: String,
@@ -46,7 +47,8 @@ pub struct Draft {
     pub amount_cents: Option<i64>,
     pub category: String,
     pub subcategory: Option<String>,
-    pub account: Option<String>,
+    /// 识别不出时是优先级第一的账户。
+    pub account: String,
     pub merchant: Option<String>,
     pub occurred_at: DateTime<FixedOffset>,
     pub note: Option<String>,
@@ -64,15 +66,15 @@ pub enum FlowError {
 }
 
 impl Draft {
-    /// 空白草稿：识别不出任何东西时让用户手填。
-    pub fn blank(now: DateTime<FixedOffset>) -> Draft {
+    /// 空白草稿：识别不出任何东西时让用户手填；能定默认值的字段取默认值。
+    pub fn blank(now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
         Draft {
             id: uuid::Uuid::now_v7().to_string(),
             kind: Kind::Expense,
             amount_cents: None,
             category: OTHER.to_owned(),
             subcategory: None,
-            account: None,
+            account: cat.default_account().to_owned(),
             merchant: None,
             occurred_at: now,
             note: None,
@@ -107,11 +109,7 @@ impl Draft {
         {
             return Err("二级分类不存在");
         }
-        if self
-            .account
-            .as_ref()
-            .is_some_and(|a| !cat.accounts.contains(a))
-        {
+        if !cat.has_account(&self.account) {
             return Err("账户不存在");
         }
         if self.tags.iter().any(|t| !cat.tags.contains(t)) {
@@ -228,10 +226,7 @@ fn menu_items(d: &Draft) -> [(Action, String); 9] {
             Action::Category,
             format!("🗂️ 分类 · {}", category_label(d).replace('/', " / ")),
         ),
-        (
-            Action::Account,
-            format!("💳 账户 · {}", or_none(&d.account)),
-        ),
+        (Action::Account, format!("💳 账户 · {}", d.account)),
         (
             Action::Merchant,
             format!("🏪 商家 · {}", or_none(&d.merchant)),
@@ -316,7 +311,7 @@ pub fn step(
                 }
                 Action::Category => ask_category(&draft, now, cat),
                 Action::Account => ask(&draft, StepType::Choose, "account")
-                    .options(decorated(strs(&cat.accounts), "💳")),
+                    .options(decorated(cat.account_names(), "💳")),
                 Action::Merchant => ask(&draft, StepType::Text, "merchant")
                     .default(draft.merchant.clone().unwrap_or_default()),
                 Action::Time => ask(&draft, StepType::Date, "occurred_at")
@@ -356,8 +351,8 @@ pub fn step(
             None => ask_amount(&draft).warn(&format!("金额无效：{value}")),
         },
         "account" => {
-            let account = choice(value, strs(&cat.accounts), "💳").ok_or_else(invalid)?;
-            draft.account = Some(account.to_owned());
+            let account = choice(value, cat.account_names(), "💳").ok_or_else(invalid)?;
+            draft.account = account.to_owned();
             menu(&draft, now)
         }
         "tags" => {
@@ -426,7 +421,7 @@ fn summary(draft: &Draft, now: DateTime<FixedOffset>) -> String {
             amount_label(draft),
             dash(&draft.merchant)
         ),
-        format!("{} · {}", category_label(draft), dash(&draft.account)),
+        format!("{} · {}", category_label(draft), draft.account),
     ];
     let mut time_line = draft.occurred_at.format(time_fmt).to_string();
     for tag in &draft.tags {

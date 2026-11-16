@@ -14,7 +14,7 @@ fn draft() -> Draft {
         amount_cents: Some(3250),
         category: "餐饮".to_owned(),
         subcategory: Some("咖啡饮品".to_owned()),
-        account: Some("微信".to_owned()),
+        account: "微信".to_owned(),
         merchant: Some("瑞幸咖啡".to_owned()),
         occurred_at: now(),
         note: None,
@@ -196,7 +196,7 @@ fn decorated_choices_store_plain_values() {
     let r = reply(decoded(&r), "subcategory", "📂 打车");
     assert_eq!(decoded(&r).subcategory.as_deref(), Some("打车"));
     let r = reply(decoded(&r), "account", "💳 银行卡");
-    assert_eq!(decoded(&r).account.as_deref(), Some("银行卡"));
+    assert_eq!(decoded(&r).account, "银行卡");
     let r = reply(decoded(&r), "tags", "🏷️ 恋爱");
     assert_eq!(decoded(&r).tags, ["恋爱"]);
     let r = reply(decoded(&r), "kind", "↗️ 收入");
