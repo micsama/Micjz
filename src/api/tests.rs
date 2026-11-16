@@ -177,7 +177,7 @@ async fn rejected_recognition_reminds_but_still_confirms() {
     let warning = "⚠ 不像支付页：这是聊天记录";
     let (_, accounts) = s.step(&menu, menu["options"][3].as_str().unwrap()).await;
     assert!(accounts["summary"].as_str().unwrap().starts_with(warning));
-    let (_, menu) = s.step(&accounts, "💳 微信").await;
+    let (_, menu) = s.step(&accounts, "微信").await;
     assert_eq!(menu["field"], "action");
     assert_eq!(menu["summary"], warning);
     let (_, done) = s.step(&menu, "✅ 确认记账").await;
@@ -190,15 +190,20 @@ async fn edit_category_and_tags_before_confirm() {
     let (_, menu) = s.recognize("image", PNG).await;
     let (_, cats) = s.step(&menu, menu["options"][2].as_str().unwrap()).await;
     assert_eq!(cats["field"], "category");
-    let (_, subs) = s.step(&cats, "🗂️ 交通").await;
+    let (_, subs) = s.step(&cats, "🚇 交通").await;
     assert_eq!(subs["field"], "subcategory");
-    let (_, menu) = s.step(&subs, "📂 打车").await;
-    assert!(menu["options"][2].as_str().unwrap().contains("交通 / 打车"));
+    let (_, menu) = s.step(&subs, "🚕 打车").await;
+    assert!(
+        menu["options"][2]
+            .as_str()
+            .unwrap()
+            .contains("🚇 交通 / 🚕 打车")
+    );
     let (_, tags) = s.step(&menu, menu["options"][6].as_str().unwrap()).await;
     assert_eq!(tags["type"], "choose_many");
-    let (_, menu) = s.step(&tags, "🏷️ 恋爱").await;
+    let (_, menu) = s.step(&tags, "恋爱").await;
     let (_, done) = s.step(&menu, "✅ 确认记账").await;
-    assert_done(&done, "交通/打车");
+    assert_done(&done, "🚇 交通/🚕 打车");
     assert_eq!(
         s.count(
             "SELECT COUNT(*) FROM entries e

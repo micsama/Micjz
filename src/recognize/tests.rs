@@ -26,7 +26,7 @@ fn full_output() {
     assert_eq!(d.amount_cents, Some(3250));
     assert_eq!(
         (d.category.as_str(), d.subcategory.as_deref()),
-        ("餐饮", Some("咖啡饮品"))
+        ("🍜 餐饮", Some("☕️ 咖啡饮品"))
     );
     assert_eq!(d.occurred_at.to_rfc3339(), "2026-11-16T12:05:00+08:00");
     assert_eq!(d.note.as_deref(), Some("生椰拿铁"), "商品名进备注");
@@ -39,7 +39,7 @@ fn invalid_fields_become_empty() {
             "occurred_at":"昨天","category":"nope","item":"  "}"#,
     );
     assert_eq!(d.amount_cents, None, "金额不合规置空，让用户填");
-    assert_eq!((d.category.as_str(), d.subcategory), ("其他", None));
+    assert_eq!((d.category.as_str(), d.subcategory), ("✨ 其他", None));
     assert_eq!(d.account, "微信", "不在列表里的账户用默认账户");
     assert_eq!(d.merchant.as_deref(), Some("123"));
     assert_eq!(d.occurred_at, now());
@@ -56,9 +56,9 @@ fn recent_time_uses_now() {
 #[test]
 fn income_key_must_match_kind() {
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"refund"}"#);
-    assert_eq!((d.kind, d.category.as_str()), (Kind::Income, "退款"));
+    assert_eq!((d.kind, d.category.as_str()), (Kind::Income, "↩️ 退款"));
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"coffee"}"#);
-    assert_eq!(d.category, "其他", "支出 key 不能用在收入上");
+    assert_eq!(d.category, "✨ 其他", "支出 key 不能用在收入上");
 }
 
 #[test]
@@ -82,7 +82,7 @@ async fn mock_always_ok() {
         )
         .await;
     assert_eq!(r.outcome, Outcome::Ok);
-    assert!(r.prompt.contains("coffee: 餐饮/咖啡饮品"));
+    assert!(r.prompt.contains("coffee: 🍜 餐饮/☕️ 咖啡饮品"));
     assert!(
         r.prompt.contains("看不出省略：\n微信\n银行卡"),
         "账户逐行列出"

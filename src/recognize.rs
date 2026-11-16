@@ -290,10 +290,14 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
 }
 
 fn mock_draft(now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
+    // 按 key 取，分类改名不影响；库里删了就落到「其他」。
+    let (category, subcategory) = cat
+        .by_key(Kind::Expense, "coffee")
+        .unwrap_or((cat.fallback(Kind::Expense), None));
     Draft {
         amount_cents: Some(3250),
-        category: "餐饮".to_owned(),
-        subcategory: Some("咖啡饮品".to_owned()),
+        category: category.to_owned(),
+        subcategory: subcategory.map(str::to_owned),
         merchant: Some("瑞幸咖啡".to_owned()),
         note: Some("生椰拿铁".to_owned()),
         ..Draft::blank(now, cat)

@@ -8,21 +8,32 @@ fn db() -> Connection {
     conn
 }
 
+/// 按空格切参数；单引号括起的一段算一个（分类名带 emoji 和空格）。
 fn run(conn: &mut Connection, cmd: &str) -> anyhow::Result<String> {
-    let args: Vec<String> = cmd.split(' ').map(str::to_owned).collect();
+    let args: Vec<String> = cmd
+        .split('\'')
+        .enumerate()
+        .flat_map(|(i, part)| {
+            if i % 2 == 1 {
+                vec![part.to_owned()]
+            } else {
+                part.split_whitespace().map(str::to_owned).collect()
+            }
+        })
+        .collect();
     cli(conn, &args)
 }
 
 #[test]
 fn seed_data() {
     let cat = load(&db()).unwrap();
-    assert_eq!(cat.fallback(Kind::Expense), "其他");
-    assert_eq!(cat.fallback(Kind::Income), "其他");
+    assert_eq!(cat.fallback(Kind::Expense), "✨ 其他");
+    assert_eq!(cat.fallback(Kind::Income), "✨ 其他");
     assert_eq!(cat.account_names().collect::<Vec<_>>(), ["微信", "银行卡"]);
     assert_eq!(cat.default_account(), "微信");
     assert_eq!(
         cat.by_key(Kind::Expense, "coffee"),
-        Some(("餐饮", Some("咖啡饮品")))
+        Some(("🍜 餐饮", Some("☕️ 咖啡饮品")))
     );
     assert_eq!(
         cat.by_key(Kind::Expense, "food"),
@@ -58,8 +69,8 @@ fn add_rename_remove() {
     assert!(run(&mut conn, "category rm 支出 学习").is_err(), "先删二级");
     run(&mut conn, "category rm 支出 学习/图书").unwrap();
     run(&mut conn, "category rm 支出 学习").unwrap();
-    assert!(run(&mut conn, "category rm 支出 其他").is_err());
-    run(&mut conn, "category rename 收入 其他 杂项").unwrap();
+    assert!(run(&mut conn, "category rm 支出 '✨ 其他'").is_err());
+    run(&mut conn, "category rename 收入 '✨ 其他' 杂项").unwrap();
     assert_eq!(
         load(&conn).unwrap().fallback(Kind::Income),
         "杂项",
@@ -92,16 +103,16 @@ fn add_rename_remove() {
         "最后一个账户不能删"
     );
 
-    run(&mut conn, "category move 支出 餐饮/聚餐 1").unwrap();
-    run(&mut conn, "category move 支出 其他 1").unwrap();
+    run(&mut conn, "category move 支出 '🍜 餐饮/🍲 聚餐' 1").unwrap();
+    run(&mut conn, "category move 支出 '✨ 其他' 1").unwrap();
     let cat = load(&conn).unwrap();
     let first = &cat.categories(Kind::Expense)[0];
-    assert_eq!(first.name, "其他");
+    assert_eq!(first.name, "✨ 其他");
     assert_eq!(
-        cat.category(Kind::Expense, "餐饮").unwrap().subs[0].1,
-        "聚餐"
+        cat.category(Kind::Expense, "🍜 餐饮").unwrap().subs[0].1,
+        "🍲 聚餐"
     );
-    assert!(run(&mut conn, "category move 支出 其他 0").is_err());
+    assert!(run(&mut conn, "category move 支出 '✨ 其他' 0").is_err());
     run(&mut conn, "tag rename 恋爱 约会").unwrap();
     assert_eq!(load(&conn).unwrap().tags, ["约会"]);
     assert!(run(&mut conn, "nope").is_err());
@@ -126,7 +137,7 @@ fn used_ones_cannot_be_removed() {
          FROM accounts a, accounts b WHERE a.name = '银行卡' AND b.name = '现金';",
     )
     .unwrap();
-    let err = run(&mut conn, "category rm 支出 餐饮/咖啡饮品").unwrap_err();
+    let err = run(&mut conn, "category rm 支出 '🍜 餐饮/☕️ 咖啡饮品'").unwrap_err();
     assert!(err.to_string().contains("1 笔账"), "{err}");
     assert!(run(&mut conn, "account rm 微信").is_err());
     assert!(run(&mut conn, "tag rm 恋爱").is_err());
@@ -139,7 +150,7 @@ fn used_ones_cannot_be_removed() {
             .unwrap()
             .contains("现金  1 笔")
     );
-    run(&mut conn, "category rename 支出 餐饮/咖啡饮品 咖啡").unwrap();
+    run(&mut conn, "category rename 支出 '🍜 餐饮/☕️ 咖啡饮品' 咖啡").unwrap();
     assert!(
         run(&mut conn, "category list")
             .unwrap()

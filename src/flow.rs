@@ -230,10 +230,8 @@ fn menu_items(d: &Draft) -> [(Action, String); 9] {
     [
         (Action::Amount, format!("💰 金额 · {}", amount_label(d))),
         (Action::Kind, format!("↔️ 类型 · {}", d.kind.label())),
-        (
-            Action::Category,
-            format!("🗂️ 分类 · {}", category_label(d).replace('/', " / ")),
-        ),
+        // 分类名自带 emoji，这一行只显示分类本身。
+        (Action::Category, category_label(d).replace('/', " / ")),
         (Action::Account, format!("💳 账户 · {}", d.account)),
         (
             Action::Merchant,
@@ -255,23 +253,6 @@ pub fn menu(draft: &Draft, now: DateTime<FixedOffset>) -> Reply {
         .options(menu_items(draft).map(|(_, label)| label));
     reply.summary.clear();
     reply
-}
-
-fn decorated<'a>(values: impl IntoIterator<Item = &'a str>, emoji: &str) -> Vec<String> {
-    values.into_iter().map(|v| format!("{emoji} {v}")).collect()
-}
-
-/// 带 emoji 的展示文本 → 纯数据值。
-fn choice<'a>(
-    value: &str,
-    values: impl IntoIterator<Item = &'a str>,
-    emoji: &str,
-) -> Option<&'a str> {
-    values.into_iter().find(|v| value == format!("{emoji} {v}"))
-}
-
-fn strs(values: &[String]) -> impl Iterator<Item = &str> {
-    values.iter().map(String::as_str)
 }
 
 pub fn saved_message(draft: &Draft, amount_cents: i64) -> String {
@@ -318,36 +299,41 @@ pub fn step(
                     ask(&draft, StepType::Choose, "kind").options(["↘️ 支出", "↗️ 收入"])
                 }
                 Action::Category => ask_category(&draft, now, cat),
-                Action::Account => ask(&draft, StepType::Choose, "account")
-                    .options(decorated(cat.account_names(), "💳")),
+                Action::Account => {
+                    ask(&draft, StepType::Choose, "account").options(cat.account_names())
+                }
                 Action::Merchant => ask(&draft, StepType::Text, "merchant")
                     .default(draft.merchant.clone().unwrap_or_default()),
                 Action::Time => ask(&draft, StepType::Date, "occurred_at")
                     .default(draft.occurred_at.to_rfc3339()),
-                Action::Tags => ask(&draft, StepType::ChooseMany, "tags")
-                    .options(decorated(strs(&cat.tags), "🏷️")),
+                Action::Tags => ask(&draft, StepType::ChooseMany, "tags").options(&cat.tags),
                 Action::Note => ask(&draft, StepType::Text, "note")
                     .default(draft.note.clone().unwrap_or_default()),
             }
         }
         "category" => {
             let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
-            let name = choice(value, names, "🗂️").ok_or_else(invalid)?;
+            let name = names
+                .into_iter()
+                .find(|n| *n == value)
+                .ok_or_else(invalid)?;
             let category = cat.category(draft.kind, name).ok_or_else(invalid)?;
             draft.category = category.name.clone();
             draft.subcategory = None;
             if category.subs.is_empty() {
                 menu(&draft, now)
             } else {
-                ask(&draft, StepType::Choose, "subcategory")
-                    .options(decorated(category.sub_names(), "📂"))
+                ask(&draft, StepType::Choose, "subcategory").options(category.sub_names())
             }
         }
         "subcategory" => {
             let category = cat
                 .category(draft.kind, &draft.category)
                 .ok_or_else(invalid)?;
-            let sub = choice(value, category.sub_names(), "📂").ok_or_else(invalid)?;
+            let sub = category
+                .sub_names()
+                .find(|n| *n == value)
+                .ok_or_else(invalid)?;
             draft.subcategory = Some(sub.to_owned());
             menu(&draft, now)
         }
@@ -359,7 +345,10 @@ pub fn step(
             None => ask_amount(&draft).warn(&format!("金额无效：{value}")),
         },
         "account" => {
-            let account = choice(value, cat.account_names(), "💳").ok_or_else(invalid)?;
+            let account = cat
+                .account_names()
+                .find(|n| *n == value)
+                .ok_or_else(invalid)?;
             draft.account = account.to_owned();
             menu(&draft, now)
         }
@@ -369,8 +358,10 @@ pub fn step(
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .map(|t| {
-                    choice(t, strs(&cat.tags), "🏷️")
-                        .map(str::to_owned)
+                    cat.tags
+                        .iter()
+                        .find(|n| *n == t)
+                        .cloned()
                         .ok_or_else(invalid)
                 })
                 .collect::<Result<_, _>>()?;
@@ -411,7 +402,8 @@ pub fn step(
 
 fn ask_category(draft: &Draft, now: DateTime<FixedOffset>, cat: &Catalog) -> Reply {
     let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
-    Reply::ask(draft, now, StepType::Choose, "category").options(decorated(names, "🗂️"))
+    // 分类名自带 emoji，原样作为选项。
+    Reply::ask(draft, now, StepType::Choose, "category").options(names)
 }
 
 /// 子步骤的提示语：当前账单的多行摘要。

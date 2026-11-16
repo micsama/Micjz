@@ -12,8 +12,8 @@ fn draft() -> Draft {
         id: "01".to_owned(),
         kind: Kind::Expense,
         amount_cents: Some(3250),
-        category: "餐饮".to_owned(),
-        subcategory: Some("咖啡饮品".to_owned()),
+        category: "🍜 餐饮".to_owned(),
+        subcategory: Some("☕️ 咖啡饮品".to_owned()),
         account: "微信".to_owned(),
         merchant: Some("瑞幸咖啡".to_owned()),
         occurred_at: now(),
@@ -44,7 +44,7 @@ fn menu_summary() {
         vec![
             "💰 金额 · 32.50",
             "↔️ 类型 · 支出",
-            "🗂️ 分类 · 餐饮 / 咖啡饮品",
+            "🍜 餐饮 / ☕️ 咖啡饮品",
             "💳 账户 · 微信",
             "🏪 商家 · 瑞幸咖啡",
             "🕒 时间 · 11-16 13:42",
@@ -77,19 +77,19 @@ fn confirm_returns_draft() {
 
 #[test]
 fn two_level_category() {
-    let r = reply(draft(), "action", "🗂️ 分类 · 餐饮 / 咖啡饮品");
+    let r = reply(draft(), "action", "🍜 餐饮 / ☕️ 咖啡饮品");
     assert_eq!(r.field, "category");
-    assert!(r.options.contains(&"🗂️ 交通".to_owned()));
+    assert!(r.options.contains(&"🚇 交通".to_owned()));
 
-    let r = reply(decoded(&r), "category", "🗂️ 交通");
+    let r = reply(decoded(&r), "category", "🚇 交通");
     assert_eq!(r.field, "subcategory");
     assert_eq!(decoded(&r).subcategory, None);
 
-    let r = reply(decoded(&r), "subcategory", "📂 打车");
+    let r = reply(decoded(&r), "subcategory", "🚕 打车");
     assert_eq!(r.field, "action");
-    assert!(r.options.contains(&"🗂️ 分类 · 交通 / 打车".to_owned()));
+    assert!(r.options.contains(&"🚇 交通 / 🚕 打车".to_owned()));
 
-    let r = reply(decoded(&r), "category", "🗂️ 其他");
+    let r = reply(decoded(&r), "category", "✨ 其他");
     assert_eq!(r.field, "action", "无二级直接回主菜单");
 }
 
@@ -113,7 +113,7 @@ fn amount_input() {
 
 #[test]
 fn tags_replace_and_clear() {
-    let r = reply(draft(), "tags", "🏷️ 恋爱");
+    let r = reply(draft(), "tags", "恋爱");
     assert_eq!(decoded(&r).tags, vec!["恋爱"]);
     assert!(r.options.contains(&"🏷️ 标签 · 恋爱".to_owned()));
 
@@ -130,7 +130,7 @@ fn switch_kind_resets_category() {
     let d = decoded(&r);
     assert_eq!(
         (d.kind, d.category.as_str(), d.subcategory),
-        (Kind::Income, "其他", None)
+        (Kind::Income, "✨ 其他", None)
     );
 
     let r = reply(draft(), "kind", "↘️ 支出");
@@ -191,13 +191,13 @@ fn dynamic_actions_round_trip() {
 
 #[test]
 fn decorated_choices_store_plain_values() {
-    let r = reply(draft(), "category", "🗂️ 交通");
-    assert!(r.options.contains(&"📂 打车".to_owned()));
-    let r = reply(decoded(&r), "subcategory", "📂 打车");
-    assert_eq!(decoded(&r).subcategory.as_deref(), Some("打车"));
-    let r = reply(decoded(&r), "account", "💳 银行卡");
+    let r = reply(draft(), "category", "🚇 交通");
+    assert!(r.options.contains(&"🚕 打车".to_owned()));
+    let r = reply(decoded(&r), "subcategory", "🚕 打车");
+    assert_eq!(decoded(&r).subcategory.as_deref(), Some("🚕 打车"));
+    let r = reply(decoded(&r), "account", "银行卡");
     assert_eq!(decoded(&r).account, "银行卡");
-    let r = reply(decoded(&r), "tags", "🏷️ 恋爱");
+    let r = reply(decoded(&r), "tags", "恋爱");
     assert_eq!(decoded(&r).tags, ["恋爱"]);
     let r = reply(decoded(&r), "kind", "↗️ 收入");
     assert_eq!(decoded(&r).kind, Kind::Income);

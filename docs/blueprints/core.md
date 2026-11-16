@@ -91,11 +91,11 @@ JSON → base64url，快捷指令原样回传；草稿里存名称，入账时�
 ```text
 💰 金额 · 32.50      → number  field=amount
 ↔️ 类型 · 支出       → choose  field=kind（↘️ 支出 / ↗️ 收入；变了则清空分类并转去选分类）
-🗂️ 分类 · 餐饮 / 咖啡饮品 → choose field=category（🗂️ 一级）→ 有二级再 choose field=subcategory（📂 二级）
-💳 账户 · 微信       → choose  field=account（💳 账户）
+🍜 餐饮 / ☕️ 咖啡饮品 → choose field=category（一级名称原样，名称自带 emoji）→ 有二级再 choose field=subcategory（二级名称原样）
+💳 账户 · 微信       → choose  field=account（账户名原样）
 🏪 商家 · 瑞幸咖啡   → text    field=merchant
 🕒 时间 · 11-16 13:42 → date   field=occurred_at
-🏷️ 标签 · 无         → choose_many field=tags（🏷️ 标签，换行合并，整体替换）
+🏷️ 标签 · 无         → choose_many field=tags（标签名原样，换行合并，整体替换）
 📝 备注 · 生椰拿铁   → text    field=note
 ✅ 确认记账          → 入账；金额为空则转去填金额
 ```
