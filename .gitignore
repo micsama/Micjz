@@ -1,0 +1,6 @@
+/target
+/config.toml
+/data/
+/samples/
+/shortcuts/*.shortcut
+/token.txt

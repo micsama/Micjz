@@ -1,0 +1,10 @@
+# 复制为 config.toml 使用。
+listen = "127.0.0.1:8730" # 手机局域网调试时改为 0.0.0.0:8730
+token = "change-me"
+db_path = "data/micjz.db"
+
+# 去掉下面三行的注释启用 DeepSeek（需环境变量 DEEPSEEK_API_KEY）；
+# 不配置则用 mock 识别，固定返回假账单，用于联调快捷指令。
+# [deepseek]
+# model = "deepseek-flash"
+# timeout_secs = 30
