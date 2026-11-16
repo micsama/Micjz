@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
     catalog::{self, Catalog},
@@ -16,7 +16,15 @@ use crate::{
     recognize::{Outcome, Recognized},
 };
 
+pub mod entries;
+
 pub const SCHEMA: &str = "
+CREATE TABLE web_admin (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  password_hash TEXT NOT NULL,
+  session_key BLOB NOT NULL
+) STRICT;
+
 -- parent_id 为空是一级；每个分类都有模型 key。外键保证有账目或二级的分类删不掉。
 -- position 是同级内的优先级：菜单顺序、模型分类模糊时的先后。
 CREATE TABLE categories (
@@ -35,6 +43,7 @@ CREATE TABLE accounts (
   id          INTEGER PRIMARY KEY,
   position    INTEGER NOT NULL,
   name        TEXT NOT NULL UNIQUE,
+  brand       TEXT,
   card_type   TEXT CHECK (card_type IN ('debit', 'credit')),
   card_number TEXT,
   CHECK ((card_type IS NULL) = (card_number IS NULL))
@@ -89,7 +98,7 @@ CREATE TABLE entry_tags (
   PRIMARY KEY (entry_id, tag_id)
 ) STRICT;
 
--- 访问日志：通过鉴权的每个请求一行。draft_id 原样记收到的，不设外键。
+-- 访问日志：通过鉴权的快捷指令请求与网页写请求。draft_id 原样记收到的，不设外键。
 CREATE TABLE requests (
   id         INTEGER PRIMARY KEY,
   at         TEXT NOT NULL,
@@ -121,6 +130,19 @@ pub fn schema_version() -> u32 {
         .expect("schema_version 是数字")
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("{0}")]
+    Invalid(String),
+    #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
+    Missing(String),
+    #[error(transparent)]
+    Sql(#[from] rusqlite::Error),
+}
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 pub struct Db(Mutex<Connection>);
 
 /// 识别时收到的图片。
@@ -131,7 +153,7 @@ pub struct Image<'a> {
     pub path: &'a str,
 }
 
-/// `requests` 表的一行：通过鉴权的每个请求。
+/// `requests` 表的一行：快捷指令请求或网页写请求。
 pub struct RequestRow<'a> {
     pub at: &'a str,
     pub method: &'a str,
@@ -211,37 +233,37 @@ impl Db {
     pub fn save(&self, d: &Draft, amount_cents: i64) -> anyhow::Result<bool> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let id = uuid::Uuid::now_v7().to_string();
-        let category_id = category_id(&tx, d)?;
-        let account_id = catalog::name_id(&tx, "accounts", &d.account)?;
-        let inserted = tx.execute(
-            "INSERT INTO entries (id, recognition_id, kind, amount_cents, category_id, account_id,
-                                  merchant, occurred_at, note, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(recognition_id) DO NOTHING",
-            params![
-                id,
-                d.id,
-                d.kind.as_str(),
-                amount_cents,
-                category_id,
-                account_id,
-                d.merchant,
-                flow::stamp(d.occurred_at),
-                d.note,
-                flow::stamp(flow::now()),
-            ],
-        )? == 1;
-        if inserted {
-            for tag in &d.tags {
-                tx.execute(
-                    "INSERT INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
-                    params![id, catalog::name_id(&tx, "tags", tag)?],
-                )?;
-            }
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM entries WHERE recognition_id = ?1)",
+            [&d.id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Ok(false);
         }
+        let input = entries::EntryInput {
+            kind: match d.kind {
+                flow::Kind::Expense => entries::EntryKind::Expense,
+                flow::Kind::Income => entries::EntryKind::Income,
+            },
+            amount_cents,
+            category_id: Some(
+                draft_category_id(&tx, d)?
+                    .with_context(|| format!("分类已不存在：{}", flow::category_label(d)))?,
+            ),
+            account_id: catalog::name_id(&tx, "accounts", &d.account)?,
+            to_account_id: None,
+            merchant: d.merchant.clone(),
+            occurred_at: flow::stamp(d.occurred_at),
+            note: d.note.clone(),
+            tag_ids: d
+                .tags
+                .iter()
+                .map(|t| catalog::name_id(&tx, "tags", t))
+                .collect::<anyhow::Result<_>>()?,
+        };
+        entries::insert(&tx, input.parse()?, Some(&d.id))?;
         tx.commit()?;
-        Ok(inserted)
+        Ok(true)
     }
 
     pub fn record_request(&self, r: &RequestRow<'_>) -> rusqlite::Result<()> {
@@ -296,8 +318,8 @@ impl Db {
     }
 }
 
-fn category_id(tx: &Transaction<'_>, d: &Draft) -> anyhow::Result<i64> {
-    tx.query_row(
+pub fn draft_category_id(conn: &Connection, d: &Draft) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
         "SELECT coalesce(s.id, c.id) FROM categories c
          LEFT JOIN categories s ON s.parent_id = c.id AND s.name = ?3
          WHERE c.kind = ?1 AND c.parent_id IS NULL AND c.name = ?2
@@ -305,8 +327,7 @@ fn category_id(tx: &Transaction<'_>, d: &Draft) -> anyhow::Result<i64> {
         params![d.kind.as_str(), d.category, d.subcategory],
         |r| r.get(0),
     )
-    .optional()?
-    .with_context(|| format!("分类已不存在：{}", flow::category_label(d)))
+    .optional()
 }
 
 #[cfg(test)]

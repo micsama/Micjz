@@ -19,6 +19,10 @@ convert() { python3 deploy/db/convert.py --config "$config" "$@"; }
 build() {
     command -v cargo >/dev/null 2>&1 || { echo "请先手动安装 Rust 工具链（cargo）" >&2; exit 1; }
     command -v python3 >/dev/null 2>&1 || { echo "请先手动安装 Python 3（≥ 3.11）" >&2; exit 1; }
+    command -v bun >/dev/null 2>&1 || { echo "请先手动安装 Bun" >&2; exit 1; }
+    (cd web && bun install --frozen-lockfile && bun run build)
+    MICJZ_VERSION=$(git rev-parse --short HEAD)
+    export MICJZ_VERSION
     case "$profile" in
         release) cargo build --release --locked --config 'profile.release.strip="symbols"' ;;
         debug) cargo build --locked ;;

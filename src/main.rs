@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod catalog;
 mod db;
 mod flow;
@@ -50,6 +51,10 @@ async fn main() -> anyhow::Result<()> {
     let config: Config = toml::from_str(&text).with_context(|| format!("解析配置 {path}"))?;
     anyhow::ensure!(!config.token.is_empty(), "token 不能为空");
     let db = db::Db::open(&config.db_path)?;
+    if args == ["password"] {
+        auth::password_cli(&db)?;
+        return Ok(());
+    }
     if !args.is_empty() {
         println!("{}", catalog::cli(&mut db.conn(), &args)?);
         return Ok(());
@@ -76,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = api::AppState {
         token: config.token,
+        login_limit: Default::default(),
         recognizer,
         db,
         images_dir: config

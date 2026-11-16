@@ -29,7 +29,7 @@ micjz /path/to/config.toml category list         # 指定配置文件
 - 每个分类必须有 key：小写英文、数字或下划线，全局唯一。模型只看叶子分类（没有二级的一级、二级）的 key。
 - 有账目的分类、账户、标签不能删；一级下还有二级时要先删二级；兜底的「其他」（按 key 认）不能删，可以改名；最后一个账户不能删。
 - 新加的分类、账户排在同级最后，用 `move` 调整优先级：决定菜单顺序和模型分不清时的先后。名称不能含 `/` 和换行。
-- 银行账户用银行全称起名（如「招商银行信用卡」）：截图里显示的是全称，模型比对更准；以后网页按名称配银行 logo。
+- 银行账户用银行全称起名（如「招商银行信用卡」）：截图里显示的是全称，模型比对更准；网页可单独设置机构，决定 logo；模型会看到机构和卡尾号。
 - 卡号完整存在库里，`account list` 可复制核对；发给模型的只有卡类型和尾号。
 
 ## 部署
@@ -44,7 +44,7 @@ screen -S micjz
 更新：`git pull && ./build.sh`（构建期间旧服务照跑），然后 `screen -r micjz`，Ctrl-C 停掉旧服务，`./build.sh start` 启动新版本。
 
 - `./build.sh [debug] [build|run|start] [config.toml]`：`build` 只构建并检查库；`run` 构建后启动；`start` 不构建直接启动。每次启动前都备份成 `data/micjz.db.v<版本>-<时间>.bak`（不自动清理），版本落后再转换。
-- 首次部署：`config.example.toml` 复制为 `config.toml`；启动前 `export DEEPSEEK_API_KEY=...`。需要 Rust 工具链和 Python ≥ 3.11。
+- 首次部署：`config.example.toml` 复制为 `config.toml`；启动前 `export DEEPSEEK_API_KEY=...`。需要 Rust 工具链、Python ≥ 3.11 和 Bun。构建脚本先安装前端锁定依赖、构建网页，再把静态资源嵌入二进制；运行二进制时无需 Bun。
 
 ## 初始化 / 重建库
 
@@ -82,3 +82,9 @@ micjz tag add 出差
 - 正式使用后不再删库：改表结构走转换脚本，见下。
 
 数据库版本存在 `PRAGMA user_version`，程序版本在 `src/schema_version`，不一致就拒绝启动。改表结构时版本加一并写转换脚本 `deploy/db/<N>-*.sql`（v(N-1) → vN），`deploy/db/convert.py` 在一个事务里执行，出错整体回滚。调试期也可以直接删库（连同 `-wal`、`-shm`），启动时用当前结构重建；正式使用后每次改表结构都必须带转换脚本。
+
+## 网页账号
+
+先执行 `micjz [config.toml] password`，按提示输入两次密码（至少 8 位，终端不回显，也可用管道输入）。网页用户名固定为 `dzmfg`；密码存 Argon2id 哈希，不使用快捷指令的 token。服务运行中也可通过这个命令重设密码，旧会话立即失效。
+
+登录会话有效期 30 天，使用超过一天后自动续期；连续 30 天未使用需要重新登录。设置页可以修改密码，其他设备需重新登录，当前设备保持登录。表结构 v6 同时增加账户机构和网页账号；通过 `./build.sh start` 备份、转换 v5 数据库，不要重建已有账本。

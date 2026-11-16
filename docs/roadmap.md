@@ -76,7 +76,7 @@ entry_tags
   PRIMARY KEY (entry_id, tag_id)
 
 categories   (id, position, kind, parent_id, name, key)   两级分类，key 给模型
-accounts     (id, position, name, card_type, card_number)   卡号完整存，只把尾号给模型
+accounts     (id, position, name, brand, card_type, card_number)   卡号完整存，只把尾号给模型
 tags         (id, name)
 recognitions (draft_id, ...)   一次识别的输入输出和原始草稿；entries.recognition_id 指向它
 requests     (id, at, ...)     通过鉴权的请求日志
@@ -123,7 +123,7 @@ settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期
 - 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
 - 表结构 v5：账目不再依赖截图、加转账和平账、所有表改 `STRICT`，见 [账目蓝图](blueprints/entries.md)。已实现（2026-11-16）。
 - 网页记一笔（支出、收入、转账）；财富页显示真实余额，左滑账户平账。
-- Web 接口：前后端按 [Web 接口蓝图](blueprints/web-api.md) 对接（待批准）。
+- Web 接口：前后端按 [Web 接口蓝图](blueprints/web-api.md) 对接（后端已实现，2026-11-17；含 v6 账户机构字段及独立的网页登录账号）。
 - 原型里已有的页面都上线（含统计页：收支、分类占比、标签、账户汇总，原 v3 并入），范围和接口草稿见 [网页头脑风暴](brainstorm/web.md)。
 
 ### 以后再看（有真实需求再做）

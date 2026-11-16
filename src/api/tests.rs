@@ -5,6 +5,12 @@ use serde_json::{Value, json};
 use super::*;
 use crate::recognize::Recognizer;
 
+const GET: reqwest::Method = reqwest::Method::GET;
+const POST: reqwest::Method = reqwest::Method::POST;
+const PUT: reqwest::Method = reqwest::Method::PUT;
+const PATCH: reqwest::Method = reqwest::Method::PATCH;
+const DELETE: reqwest::Method = reqwest::Method::DELETE;
+
 const TOKEN: &str = "test-token";
 const PNG: &[u8] = include_bytes!("test.png");
 
@@ -13,6 +19,7 @@ struct Server {
     db_path: std::path::PathBuf,
     images_dir: std::path::PathBuf,
     http: reqwest::Client,
+    cookie: String,
 }
 
 impl Drop for Server {
@@ -26,10 +33,18 @@ async fn server() -> Server {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = std::env::temp_dir().join(format!("micjz-test-{}", uuid::Uuid::now_v7()));
     let (db_path, images_dir) = (dir.with_extension("db"), dir.join("images"));
+    let db = Db::open(&db_path).unwrap();
+    let admin = crate::auth::Admin::for_password("test-password").unwrap();
+    crate::auth::store(&db.conn(), &admin).unwrap();
+    let cookie = format!(
+        "micjz_session={}",
+        admin.session(chrono::Utc::now().timestamp_millis())
+    );
     let state = AppState {
         token: TOKEN.to_owned(),
+        login_limit: Default::default(),
         recognizer: Recognizer::Mock,
-        db: Db::open(&db_path).unwrap(),
+        db,
         images_dir: images_dir.clone(),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -40,6 +55,7 @@ async fn server() -> Server {
         db_path,
         images_dir,
         http: reqwest::Client::new(),
+        cookie,
     }
 }
 
@@ -294,5 +310,456 @@ async fn errors_are_json_done() {
             "SELECT count(*) FROM requests WHERE method = 'GET' AND path = '/step' AND status = 404"
         ),
         1
+    );
+}
+
+impl Server {
+    fn api(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        self.http
+            .request(method, format!("{}/api/{path}", self.base))
+            .header("Cookie", &self.cookie)
+    }
+    async fn web(&self, method: reqwest::Method, path: &str, value: Value) -> (u16, Value) {
+        self.send(self.api(method, path).json(&value)).await
+    }
+    async fn catalog(&self) -> Value {
+        let (status, v) = self.send(self.api(reqwest::Method::GET, "catalog")).await;
+        assert_eq!(status, 200);
+        v
+    }
+}
+fn expense(catalog: &Value) -> Value {
+    json!({"kind":"expense","amount_cents":3250,"category_id":catalog["categories"].as_array().unwrap().iter().find(|c|c["kind"]=="expense").unwrap()["id"],"account_id":catalog["accounts"][0]["id"],"to_account_id":null,"merchant":"  商家  ","occurred_at":"2026-11-17T12:30:00.123+08:00","note":" 午饭 ","tag_ids":[catalog["tags"][0]["id"],catalog["tags"][0]["id"]]})
+}
+
+#[tokio::test]
+async fn web_login_password_and_separate_shortcut_auth() {
+    let s = server().await;
+    let login = |username: &str, password: &str| {
+        s.http
+            .post(format!("{}/api/login", s.base))
+            .json(&json!({"username":username,"password":password}))
+    };
+    let (status, v) = s
+        .send(
+            s.http
+                .get(format!("{}/api/catalog", s.base))
+                .bearer_auth(TOKEN),
+        )
+        .await;
+    assert_eq!(status, 401);
+    assert_eq!(v, json!({"error":"未登录或登录已过期"}));
+    assert_eq!(s.send(login("dzmfg", "wrong")).await.0, 401);
+    let resp = login("dzmfg", "test-password")
+        .header("X-Forwarded-Proto", "https")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+    let cookie = resp.headers()["set-cookie"].to_str().unwrap();
+    for flag in [
+        "micjz_session=",
+        "HttpOnly",
+        "SameSite=Strict",
+        "Max-Age=2592000",
+        "Secure",
+    ] {
+        assert!(cookie.contains(flag));
+    }
+    assert_eq!(
+        s.api(POST, "logout")
+            .header("Sec-Fetch-Site", "same-site")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        s.api(POST, "logout")
+            .header("Origin", "https://other.example")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        s.web(
+            PUT,
+            "password",
+            json!({"current":"wrong","new":"new-password"})
+        )
+        .await
+        .0,
+        400
+    );
+    let changed = s
+        .api(PUT, "password")
+        .json(&json!({"current":"test-password","new":"new-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(changed.status(), 204);
+    let fresh = changed.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    assert_eq!(s.send(s.api(GET, "catalog")).await.0, 401);
+    let resp = s
+        .http
+        .get(format!("{}/api/catalog", s.base))
+        .header("Cookie", fresh)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(s.send(login("dzmfg", "test-password")).await.0, 401);
+    assert_eq!(
+        login("dzmfg", "new-password")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    // 密码写操作只记录请求元数据。
+    assert_eq!(s.count("SELECT count(*) FROM requests WHERE path IN ('/api/login','/api/password') AND (value IS NOT NULL OR field IS NOT NULL)"),0);
+    // 密码找回、续期、限速分别验证模块和真实路由的连接。
+    let db = Db::open(&s.db_path).unwrap();
+    let admin = crate::auth::load(&db.conn()).unwrap().unwrap();
+    let old = admin.session(chrono::Utc::now().timestamp_millis() - 86_400_001);
+    let resp = s
+        .http
+        .get(format!("{}/api/settings", s.base))
+        .header("Cookie", format!("micjz_session={old}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert!(resp.headers().contains_key("set-cookie"));
+    let new = crate::auth::Admin::for_password("reset-password").unwrap();
+    crate::auth::store(&db.conn(), &new).unwrap();
+    assert_eq!(
+        s.http
+            .get(format!("{}/api/catalog", s.base))
+            .header("Cookie", fresh)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    // 已有两次登录失败，再失败八次后，第十一次尝试被限速。
+    for _ in 0..8 {
+        let status = login("dzmfg", "wrong").send().await.unwrap().status();
+        assert_eq!(status, 401);
+    }
+    assert_eq!(s.send(login("dzmfg", "reset-password")).await.0, 429);
+    db.conn().execute("DELETE FROM web_admin", []).unwrap();
+    let s2 = server().await;
+    rusqlite::Connection::open(&s2.db_path)
+        .unwrap()
+        .execute("DELETE FROM web_admin", [])
+        .unwrap();
+    assert_eq!(
+        s2.web(
+            POST,
+            "login",
+            json!({"username":"dzmfg","password":"test-password"})
+        )
+        .await
+        .0,
+        409
+    );
+    for path in ["/", "/icon.svg"] {
+        let resp = s
+            .http
+            .get(format!("{}{path}", s.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["cache-control"], "no-cache");
+    }
+}
+
+#[tokio::test]
+async fn web_entries_validation_patch_and_balances() {
+    let s = server().await;
+    let c = s.catalog().await;
+    let input = expense(&c);
+    let (status, e) = s.web(POST, "entries", input.clone()).await;
+    assert_eq!(status, 201, "{e}");
+    assert_eq!(e["merchant"], "商家");
+    assert_eq!(e["note"], "午饭");
+    assert_eq!(e["occurred_at"], "2026-11-17T04:30:00Z");
+    assert_eq!(e["tag_ids"].as_array().unwrap().len(), 1);
+    assert!(e["recognition_id"].is_null());
+    assert_eq!(
+        uuid::Uuid::parse_str(e["id"].as_str().unwrap())
+            .unwrap()
+            .get_version_num(),
+        7
+    );
+    let path = format!("entries/{}", e["id"].as_str().unwrap());
+    let (status, p) = s.web(PATCH, &path, json!({"note":null})).await;
+    assert_eq!(status, 200);
+    assert!(p["note"].is_null());
+    assert_eq!(p["merchant"], e["merchant"]);
+    let (_, p) = s
+        .web(PATCH, &path, json!({"merchant":" ","tag_ids":[]}))
+        .await;
+    assert!(p["merchant"].is_null());
+    assert_eq!(p["tag_ids"], json!([]));
+    assert_eq!(
+        s.web(PATCH, &path, json!({"amount_cents":null})).await.0,
+        400
+    );
+    assert_eq!(s.web(PATCH, &path, json!({"kind":"income"})).await.0, 400);
+    let income = c["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["kind"] == "income")
+        .unwrap()["id"]
+        .clone();
+    assert_eq!(
+        s.web(PATCH, &path, json!({"category_id":income})).await.0,
+        400
+    );
+    assert_eq!(
+        s.web(PATCH, &path, json!({"kind":"income","category_id":income}))
+            .await
+            .0,
+        200
+    );
+    let mut transfer = input.clone();
+    transfer["kind"] = json!("transfer");
+    transfer["category_id"] = Value::Null;
+    transfer["to_account_id"] = c["accounts"][0]["id"].clone();
+    assert_eq!(s.web(POST, "entries", transfer.clone()).await.0, 400);
+    transfer["to_account_id"] = c["accounts"][1]["id"].clone();
+    let (status, t) = s.web(POST, "entries", transfer).await;
+    assert_eq!(status, 201, "{t}");
+    assert_eq!(
+        s.web(
+            PATCH,
+            &format!("entries/{}", t["id"].as_str().unwrap()),
+            json!({"kind":"expense","category_id":input["category_id"]})
+        )
+        .await
+        .0,
+        400
+    );
+    let (_, b) = s.send(s.api(GET, "balances")).await;
+    assert_eq!(b["balances"][0]["balance_cents"], 0);
+    assert_eq!(b["balances"][1]["balance_cents"], 3250);
+    let (_, list) = s
+        .send(s.api(
+            GET,
+            "entries?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z",
+        ))
+        .await;
+    assert_eq!(list["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(list["entries"][0]["id"], t["id"]);
+    assert_eq!(list["earliest"], e["occurred_at"]);
+    let (_, empty) = s
+        .send(s.api(
+            GET,
+            "entries?from=2025-01-01T00:00:00Z&to=2026-01-01T00:00:00Z",
+        ))
+        .await;
+    assert_eq!(empty["entries"], json!([]));
+    assert_eq!(empty["earliest"], e["occurred_at"]);
+    for path in [
+        "entries",
+        "entries?from=x&to=y",
+        "entries?from=2026-01-01T00:00:00Z&to=2025-01-01T00:00:00Z",
+    ] {
+        assert_eq!(s.send(s.api(GET, path)).await.0, 400);
+    }
+    assert_eq!(s.api(DELETE, &path).send().await.unwrap().status(), 204);
+    assert_eq!(s.send(s.api(DELETE, &path)).await.0, 404);
+    assert_eq!(s.web(PATCH, &path, json!({"note":"x"})).await.0, 404);
+}
+
+#[tokio::test]
+async fn web_accounts_adjust_settings() {
+    let s = server().await;
+    let c = s.catalog().await;
+    let account =
+        json!({"name":" 新卡 ","brand":" 招商银行 ","card":{"type":"debit","number":"1234 5678"}});
+    let (status, a) = s.web(POST, "accounts", account.clone()).await;
+    assert_eq!(status, 201, "{a}");
+    assert_eq!(a["name"], "新卡");
+    assert_eq!(a["brand"], "招商银行");
+    assert_eq!(a["card"]["number"], "12345678");
+    assert_eq!(s.web(POST, "accounts", account.clone()).await.0, 409);
+    let path = format!("accounts/{}", a["id"].as_i64().unwrap());
+    let (status, m) = s
+        .web(POST, &format!("{path}/move"), json!({"to":-99}))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(m["accounts"][0]["id"], a["id"]);
+    let (_, m) = s
+        .web(POST, &format!("{path}/move"), json!({"to":999}))
+        .await;
+    assert_eq!(
+        m["accounts"].as_array().unwrap().last().unwrap()["id"],
+        a["id"]
+    );
+    let mut replacement = account.clone();
+    replacement["name"] = json!("工资卡");
+    assert_eq!(s.web(PUT, &path, replacement).await.0, 200);
+    let cat = Db::open(&s.db_path).unwrap().catalog().unwrap();
+    assert!(
+        cat.account_lines()
+            .contains("工资卡（招商银行 储蓄卡 尾号 5678）")
+    );
+    assert!(!cat.account_lines().contains("12345678"));
+    let (status, adj) = s
+        .web(
+            POST,
+            &format!("{path}/adjust"),
+            json!({"balance_cents":-1200}),
+        )
+        .await;
+    assert_eq!(status, 200, "{adj}");
+    assert_eq!(adj["entry"]["amount_cents"], -1200);
+    let (_, zero) = s
+        .web(
+            POST,
+            &format!("{path}/adjust"),
+            json!({"balance_cents":-1200}),
+        )
+        .await;
+    assert!(zero["entry"].is_null());
+    assert_eq!(s.send(s.api(DELETE, &path)).await.0, 409);
+    let apath = format!("entries/{}", adj["entry"]["id"].as_str().unwrap());
+    assert_eq!(
+        s.web(PATCH, &apath, json!({"amount_cents":-1300,"note":"改差额"}))
+            .await
+            .0,
+        200
+    );
+    assert_eq!(s.web(PATCH, &apath, json!({"amount_cents":0})).await.0, 400);
+    let conn = rusqlite::Connection::open(&s.db_path).unwrap();
+    conn.execute("DELETE FROM entries", []).unwrap();
+    assert_eq!(s.api(DELETE, &path).send().await.unwrap().status(), 204);
+    let first = c["accounts"][0]["id"].as_i64().unwrap();
+    let second = c["accounts"][1]["id"].as_i64().unwrap();
+    assert_eq!(
+        s.api(DELETE, &format!("accounts/{second}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert_eq!(
+        s.send(s.api(DELETE, &format!("accounts/{first}"))).await.0,
+        409
+    );
+    assert_eq!(s.send(s.api(DELETE, "accounts/99999")).await.0, 404);
+    assert_eq!(
+        s.web(POST, "accounts/99999/adjust", json!({"balance_cents":0}))
+            .await
+            .0,
+        404
+    );
+    assert_eq!(s.send(s.api(DELETE, "accounts/nope")).await.0, 400);
+    let (status, settings) = s
+        .web(PUT, "settings", json!({"cycle_day":25,"budget_cents":null}))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(settings["cycle_day"], 25);
+    assert!(settings["budget_cents"].is_null());
+    assert_eq!(settings["entry_count"], 0);
+}
+
+#[tokio::test]
+async fn web_recognition_export_and_shortcut_share_entries() {
+    let s = server().await;
+    let (_, menu) = s.recognize("image", PNG).await;
+    let (_, done) = s.step(&menu, "✅ 确认记账").await;
+    assert_done(&done, "已记账");
+    let (_, list) = s
+        .send(s.api(
+            GET,
+            "entries?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z",
+        ))
+        .await;
+    let entry = &list["entries"][0];
+    let rid = entry["recognition_id"].as_str().unwrap();
+    let (status, r) = s.send(s.api(GET, &format!("recognitions/{rid}"))).await;
+    assert_eq!(status, 200);
+    assert_eq!(r["first"]["account_id"], entry["account_id"]);
+    assert_eq!(r["first"]["amount_cents"], entry["amount_cents"]);
+    for _ in 0..50 {
+        if s.api(GET, &format!("recognitions/{rid}/image"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            == 200
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let img = s
+        .api(GET, &format!("recognitions/{rid}/image"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(img.status(), 200);
+    assert_eq!(img.headers()["content-type"], "image/png");
+    assert_eq!(
+        img.headers()["cache-control"],
+        "private, max-age=31536000, immutable"
+    );
+    let path = format!("entries/{}", entry["id"].as_str().unwrap());
+    s.web(PATCH, &path, json!({"note":"逗号,引号\"和\n换行"}))
+        .await;
+    let csv = s.api(GET, "export.csv").send().await.unwrap();
+    assert_eq!(csv.headers()["content-type"], "text/csv; charset=utf-8");
+    assert!(
+        csv.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .contains("micjz-")
+    );
+    let csv = csv.text().await.unwrap();
+    assert!(csv.starts_with('\u{feff}'));
+    assert!(csv.contains("\"逗号,引号\"\"和\n换行\""));
+    assert!(csv.contains("截图"));
+    s.api(DELETE, &path).send().await.unwrap();
+    assert_eq!(
+        s.send(s.api(GET, &format!("recognitions/{rid}"))).await.0,
+        200
+    );
+    let conn = rusqlite::Connection::open(&s.db_path).unwrap();
+    conn.execute(
+        "UPDATE accounts SET name='已改名' WHERE id=?1",
+        [entry["account_id"].as_i64().unwrap()],
+    )
+    .unwrap();
+    let (_, r) = s.send(s.api(GET, &format!("recognitions/{rid}"))).await;
+    assert!(r["first"]["account_id"].is_null());
+    assert_eq!(s.send(s.api(GET, "recognitions/missing")).await.0, 404);
+    assert_eq!(
+        s.send(s.api(GET, "recognitions/missing/image")).await.0,
+        404
+    );
+    conn.execute("UPDATE recognitions SET image_path='/nonexistent'", [])
+        .unwrap();
+    assert_eq!(
+        s.send(s.api(GET, &format!("recognitions/{rid}/image")))
+            .await
+            .0,
+        404
     );
 }

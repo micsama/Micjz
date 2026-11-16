@@ -2,12 +2,15 @@
 //! 新库用 `src/seed.sql` 初始化。`position` 是优先级：菜单顺序、模型分类模糊时的先后，
 //! 识别不出账户时取第一个账户。
 
+pub mod accounts;
+
 use std::collections::HashMap;
 
 use anyhow::{Context, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::flow::Kind;
+use accounts::Account;
 
 /// 兜底分类的 key：模型给不出分类、切换类型时用。必须是一级，不能删，可以改名。
 pub fn fallback_key(kind: Kind) -> &'static str {
@@ -25,13 +28,8 @@ pub struct Catalog {
     pub tags: Vec<String>,
 }
 
-pub struct Account {
-    pub name: String,
-    /// 银行卡的「储蓄卡 / 信用卡」与完整卡号；其他账户为空。
-    pub card: Option<(CardType, String)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CardType {
     Debit,
     Credit,
@@ -133,11 +131,23 @@ impl Catalog {
         self.accounts
             .iter()
             .map(|a| match &a.card {
-                Some((t, number)) => {
+                Some(card) => {
+                    let number = &card.number;
                     let tail = &number[number.len().saturating_sub(4)..];
-                    format!("{}（{} 尾号 {tail}）", a.name, t.label())
+                    format!(
+                        "{}（{}{} 尾号 {tail}）",
+                        a.name,
+                        a.brand
+                            .as_ref()
+                            .map(|b| format!("{b} "))
+                            .unwrap_or_default(),
+                        card.r#type.label()
+                    )
                 }
-                None => a.name.clone(),
+                None => match &a.brand {
+                    Some(b) if b != &a.name => format!("{}（{b}）", a.name),
+                    _ => a.name.clone(),
+                },
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -172,21 +182,7 @@ pub fn defaults() -> Catalog {
 
 /// 读快照；没有账户、缺兜底分类时报错（命令行不允许删掉它们）。
 pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
-    let accounts = conn
-        .prepare("SELECT name, card_type, card_number FROM accounts ORDER BY position, id")?
-        .query_map([], |r| {
-            let (name, card_type, number): (String, Option<String>, Option<String>) =
-                (r.get(0)?, r.get(1)?, r.get(2)?);
-            Ok((name, card_type.zip(number)))
-        })?
-        .map(|row| {
-            let (name, card) = row?;
-            let card = card
-                .map(|(t, n)| CardType::parse(&t).map(|t| (t, n)))
-                .transpose()?;
-            Ok(Account { name, card })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let accounts = accounts::list(conn)?;
     ensure!(!accounts.is_empty(), "没有任何账户，先 account add");
     let mut catalog = Catalog {
         expense: Vec::new(),
@@ -281,27 +277,22 @@ fn siblings(tx: &Transaction<'_>, kind: Kind, parent: Option<i64>) -> rusqlite::
     .collect()
 }
 
-fn account_ids(tx: &Transaction<'_>) -> rusqlite::Result<Vec<i64>> {
+pub fn account_ids(tx: &Transaction<'_>) -> rusqlite::Result<Vec<i64>> {
     tx.prepare("SELECT id FROM accounts ORDER BY position, id")?
         .query_map([], |r| r.get(0))?
         .collect()
 }
 
-/// 把 `id` 挪到第 `to` 位（从 1 数），其余顺延，整组重写 position。
-fn reorder(
+/// 把 `id` 挪到下标 `to`，夹到两端，其余顺延，整组重写 position。
+pub fn reorder(
     tx: &Transaction<'_>,
     table: &str,
     mut ids: Vec<i64>,
     id: i64,
-    to: &str,
-) -> anyhow::Result<()> {
-    let to: usize = to
-        .parse()
-        .ok()
-        .filter(|&n| n >= 1)
-        .with_context(|| format!("位置须为正整数：{to}"))?;
+    to: usize,
+) -> rusqlite::Result<()> {
     ids.retain(|&i| i != id);
-    ids.insert((to - 1).min(ids.len()), id);
+    ids.insert(to.min(ids.len()), id);
     for (i, id) in ids.iter().enumerate() {
         tx.execute(
             &format!("UPDATE {table} SET position = ?2 WHERE id = ?1"),
@@ -311,8 +302,16 @@ fn reorder(
     Ok(())
 }
 
+fn position(s: &str) -> anyhow::Result<usize> {
+    s.parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
+        .map(|n| n - 1)
+        .with_context(|| format!("位置须为正整数：{s}"))
+}
+
 /// 卡号只收数字，可带空格分组。
-fn check_card_number(s: &str) -> anyhow::Result<String> {
+pub fn check_card_number(s: &str) -> anyhow::Result<String> {
     let digits: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     ensure!(
         digits.len() >= 4 && digits.bytes().all(|b| b.is_ascii_digit()),
@@ -322,7 +321,7 @@ fn check_card_number(s: &str) -> anyhow::Result<String> {
 }
 
 /// 名称会出现在菜单和多选结果（按换行合并）里，分类名还用 `/` 分隔路径。
-fn check_name(name: &str) -> anyhow::Result<&str> {
+pub fn check_name(name: &str) -> anyhow::Result<&str> {
     let name = name.trim();
     ensure!(
         !name.is_empty() && !name.contains(['/', '\n']),
@@ -392,7 +391,13 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
                 [id],
                 |r| r.get(0),
             )?;
-            reorder(&tx, "categories", siblings(&tx, kind, parent)?, id, to)?;
+            reorder(
+                &tx,
+                "categories",
+                siblings(&tx, kind, parent)?,
+                id,
+                position(to)?,
+            )?;
             format!("已移动 {path} 到第 {to} 位")
         }
         ["account", "list"] => list_accounts(&tx)?,
@@ -417,7 +422,7 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
         }
         ["account", "move", name, to] => {
             let id = name_id(&tx, "accounts", name)?;
-            reorder(&tx, "accounts", account_ids(&tx)?, id, to)?;
+            reorder(&tx, "accounts", account_ids(&tx)?, id, position(to)?)?;
             format!("已移动 {name} 到第 {to} 位")
         }
         [table @ ("account" | "tag"), rest @ ..] => {
@@ -449,13 +454,13 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
                 }
                 ["rm", name] => {
                     let id = name_id(&tx, table, name)?;
-                    let used = count(&tx, used_sql, id)?;
-                    ensure!(used == 0, "{name} 被 {used} 笔账使用，不能删");
-                    ensure!(
-                        table != "accounts" || account_ids(&tx)?.len() > 1,
-                        "{name} 是最后一个账户，不能删"
-                    );
-                    tx.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id])?;
+                    if table == "accounts" {
+                        accounts::delete(&tx, id)?;
+                    } else {
+                        let used = count(&tx, used_sql, id)?;
+                        ensure!(used == 0, "{name} 被 {used} 笔账使用，不能删");
+                        tx.execute("DELETE FROM tags WHERE id = ?1", [id])?;
+                    }
                     format!("已删除 {name}")
                 }
                 _ => bail!("{USAGE}"),
@@ -500,13 +505,16 @@ fn category_id(tx: &Transaction<'_>, kind: Kind, path: &str) -> anyhow::Result<i
 }
 
 pub fn name_id(tx: &Transaction<'_>, table: &str, name: &str) -> anyhow::Result<i64> {
-    tx.query_row(
+    find_name(tx, table, name)?.with_context(|| format!("没有 {name}"))
+}
+
+pub fn find_name(conn: &Connection, table: &str, name: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
         &format!("SELECT id FROM {table} WHERE name = ?1"),
         [name],
         |r| r.get(0),
     )
-    .optional()?
-    .with_context(|| format!("没有 {name}"))
+    .optional()
 }
 
 fn count(tx: &Transaction<'_>, from_where: &str, id: i64) -> rusqlite::Result<i64> {

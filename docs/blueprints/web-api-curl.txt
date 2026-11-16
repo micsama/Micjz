@@ -1,0 +1,311 @@
+本地接口验收样例，2026-11-17；临时数据库 + Mock 识别。
+使用示例 token，无真实用户数据；端口、临时文件路径和 UUID 为本次运行值。
+
+数据库转换 --check
+数据库 /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/v5.db：v5 → v6，待转换 1 步
+
+数据库转换 --apply
+数据库 /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/v5.db：v5 → v6，待转换 1 步
+已备份 /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/v5.db.v5-20261117-015432.bak
+转换 v5 → v6（6-web.sql）
+转换完成：v6
+
+PASS：v5 → v6 保留账目、设置和账户，生成备份，外键检查通过。
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+content-length: 1005
+date: Mon, 16 Nov 2026 17:54:34 GMT
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="记账" />
+    <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <title>记账</title>
+    <script type="module" crossorigin src="./assets/index-BYZMcFmM.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BLjI5g8K.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/icon.svg
+HTTP/1.1 200 OK
+content-type: image/svg+xml
+cache-control: no-cache
+content-length: 413
+date: Mon, 16 Nov 2026 17:54:34 GMT
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34C759"/><stop offset="1" stop-color="#20A04A"/></linearGradient></defs><rect width="180" height="180" fill="url(#g)"/><text x="90" y="122" font-size="100" text-anchor="middle" fill="#fff" font-family="-apple-system, PingFang SC" font-weight="700">¥</text></svg>
+
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/catalog
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+content-length: 39
+date: Mon, 16 Nov 2026 17:54:34 GMT
+{"error":"未登录或登录已过期"}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/catalog --header 'Authorization: Bearer web-api-smoke'
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+content-length: 39
+date: Mon, 16 Nov 2026 17:54:34 GMT
+{"error":"未登录或登录已过期"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/login --json '{"username":"dzmfg","password":"smoke-password"}'
+HTTP/1.1 409 Conflict
+content-type: application/json
+content-length: 69
+date: Mon, 16 Nov 2026 17:54:34 GMT
+{"error":"尚未设置密码：在服务器上运行 micjz password"}
+
+> micjz /tmp/config.toml password（管道输入两次示例密码）
+已设置网页登录密码（用户名 dzmfg），旧会话已失效
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/login --json '{"username":"dzmfg","password":"smoke-password"}' --cookie-jar /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+set-cookie: micjz_session=1797443675358.RLPLpXN6CJKdGqX9RLI-CkRudkXZZsA1aY872XEHqH4; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000
+date: Mon, 16 Nov 2026 17:54:35 GMT
+
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/catalog --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 3375
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"accounts":[{"brand":null,"card":null,"id":1,"name":"微信"},{"brand":null,"card":null,"id":2,"name":"银行卡"}],"categories":[{"id":1,"key":"food","kind":"expense","name":"🍜 餐饮","parent_id":null},{"id":35,"key":"salary","kind":"income","name":"💰 工资","parent_id":null},{"id":6,"key":"transport","kind":"expense","name":"🚇 交通","parent_id":null},{"id":36,"key":"bonus","kind":"income","name":"🏆 奖金","parent_id":null},{"id":12,"key":"shopping","kind":"expense","name":"🛍️ 购物","parent_id":null},{"id":37,"key":"redpacket_in","kind":"income","name":"🧧 红包","parent_id":null},{"id":17,"key":"housing","kind":"expense","name":"🏠 居住","parent_id":null},{"id":38,"key":"refund","kind":"income","name":"↩️ 退款","parent_id":null},{"id":22,"key":"fun","kind":"expense","name":"🎮 娱乐","parent_id":null},{"id":39,"key":"investment","kind":"income","name":"📈 理财","parent_id":null},{"id":27,"key":"medical","kind":"expense","name":"🏥 医疗","parent_id":null},{"id":40,"key":"other_in","kind":"income","name":"✨ 其他","parent_id":null},{"id":30,"key":"social","kind":"expense","name":"🎁 人情","parent_id":null},{"id":34,"key":"other","kind":"expense","name":"✨ 其他","parent_id":null},{"id":2,"key":"meal","kind":"expense","name":"🍱 三餐","parent_id":1},{"id":3,"key":"coffee","kind":"expense","name":"☕️ 咖啡饮品","parent_id":1},{"id":4,"key":"snack","kind":"expense","name":"🍓 零食水果","parent_id":1},{"id":5,"key":"dining","kind":"expense","name":"🍲 聚餐","parent_id":1},{"id":7,"key":"transit","kind":"expense","name":"🚌 公交地铁","parent_id":6},{"id":8,"key":"taxi","kind":"expense","name":"🚕 打车","parent_id":6},{"id":9,"key":"fuel","kind":"expense","name":"⛽️ 加油充电","parent_id":6},{"id":10,"key":"parking","kind":"expense","name":"🅿️ 停车","parent_id":6},{"id":11,"key":"rail","kind":"expense","name":"✈️ 火车飞机","parent_id":6},{"id":13,"key":"daily","kind":"expense","name":"🧻 日用","parent_id":12},{"id":14,"key":"clothing","kind":"expense","name":"👕 服饰","parent_id":12},{"id":15,"key":"digital","kind":"expense","name":"🎧 数码","parent_id":12},{"id":16,"key":"home","kind":"expense","name":"🛋️ 家居","parent_id":12},{"id":18,"key":"rent","kind":"expense","name":"🔑 房租","parent_id":17},{"id":19,"key":"utilities","kind":"expense","name":"💡 水电燃气","parent_id":17},{"id":20,"key":"telecom","kind":"expense","name":"📶 话费网费","parent_id":17},{"id":21,"key":"property","kind":"expense","name":"🏢 物业","parent_id":17},{"id":23,"key":"subscription","kind":"expense","name":"📺 会员订阅","parent_id":22},{"id":24,"key":"game","kind":"expense","name":"🕹️ 游戏","parent_id":22},{"id":25,"key":"show","kind":"expense","name":"🎬 电影演出","parent_id":22},{"id":26,"key":"travel","kind":"expense","name":"🧳 旅行","parent_id":22},{"id":28,"key":"medicine","kind":"expense","name":"💊 药品","parent_id":27},{"id":29,"key":"clinic","kind":"expense","name":"🩺 门诊","parent_id":27},{"id":31,"key":"redpacket","kind":"expense","name":"🧧 红包","parent_id":30},{"id":32,"key":"gift","kind":"expense","name":"🎀 礼物","parent_id":30},{"id":33,"key":"treat","kind":"expense","name":"🍻 请客","parent_id":30}],"tags":[{"id":1,"name":"恋爱"}]}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/settings --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 71
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"budget_cents":null,"cycle_day":1,"entry_count":0,"version":"8c8013e"}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/balances --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 84
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"balances":[{"account_id":1,"balance_cents":0},{"account_id":2,"balance_cents":0}]}
+
+> curl --silent --show-error --request GET 'http://127.0.0.1:50856/api/entries?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z' --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 30
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"earliest":null,"entries":[]}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/entries --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"kind":"expense","amount_cents":3250,"category_id":1,"account_id":1,"to_account_id":null,"merchant":null,"occurred_at":"2026-11-17T12:30:00.123+08:00","note":"午饭","tag_ids":[]}'
+HTTP/1.1 201 Created
+content-type: application/json
+content-length: 274
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":"01a1e57f-1d23-744b-878b-78e7095c4640","recognition_id":null,"kind":"expense","amount_cents":3250,"category_id":1,"account_id":1,"to_account_id":null,"merchant":null,"occurred_at":"2026-11-17T04:30:00Z","note":"午饭","tag_ids":[],"created_at":"2026-11-16T17:54:35Z"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/entries --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"kind":"income","amount_cents":3250,"category_id":35,"account_id":1,"to_account_id":null,"merchant":null,"occurred_at":"2026-11-17T12:30:00.123+08:00","note":"午饭","tag_ids":[]}'
+HTTP/1.1 201 Created
+content-type: application/json
+content-length: 274
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":"01a1e57f-1d31-76fd-a172-642aa28e475f","recognition_id":null,"kind":"income","amount_cents":3250,"category_id":35,"account_id":1,"to_account_id":null,"merchant":null,"occurred_at":"2026-11-17T04:30:00Z","note":"午饭","tag_ids":[],"created_at":"2026-11-16T17:54:35Z"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/entries --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"kind":"transfer","amount_cents":3250,"category_id":null,"account_id":1,"to_account_id":2,"merchant":null,"occurred_at":"2026-11-17T12:30:00.123+08:00","note":"午饭","tag_ids":[]}'
+HTTP/1.1 201 Created
+content-type: application/json
+content-length: 275
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":"01a1e57f-1d3f-75e3-b7e8-7713a9c7f50b","recognition_id":null,"kind":"transfer","amount_cents":3250,"category_id":null,"account_id":1,"to_account_id":2,"merchant":null,"occurred_at":"2026-11-17T04:30:00Z","note":"午饭","tag_ids":[],"created_at":"2026-11-16T17:54:35Z"}
+
+> curl --silent --show-error --request PATCH http://127.0.0.1:50856/api/entries/01a1e57f-1d23-744b-878b-78e7095c4640 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"note":null,"merchant":"  瑞幸  "}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 274
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":"01a1e57f-1d23-744b-878b-78e7095c4640","recognition_id":null,"kind":"expense","amount_cents":3250,"category_id":1,"account_id":1,"to_account_id":null,"merchant":"瑞幸","occurred_at":"2026-11-17T04:30:00Z","note":null,"tag_ids":[],"created_at":"2026-11-16T17:54:35Z"}
+
+> curl --silent --show-error --request GET 'http://127.0.0.1:50856/api/entries?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z' --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 873
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"earliest":"2026-11-17T04:30:00Z","entries":[{"account_id":1,"amount_cents":3250,"category_id":null,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1d3f-75e3-b7e8-7713a9c7f50b","kind":"transfer","merchant":null,"note":"午饭","occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":2},{"account_id":1,"amount_cents":3250,"category_id":35,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1d31-76fd-a172-642aa28e475f","kind":"income","merchant":null,"note":"午饭","occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":null},{"account_id":1,"amount_cents":3250,"category_id":1,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1d23-744b-878b-78e7095c4640","kind":"expense","merchant":"瑞幸","note":null,"occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":null}]}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/balances --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 91
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"balances":[{"account_id":1,"balance_cents":-3250},{"account_id":2,"balance_cents":3250}]}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/accounts --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"name":"工资卡","brand":"招商银行","card":{"type":"debit","number":"1234 5678"}}'
+HTTP/1.1 201 Created
+content-type: application/json
+content-length: 94
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":3,"name":"工资卡","brand":"招商银行","card":{"type":"debit","number":"12345678"}}
+
+> curl --silent --show-error --request PUT http://127.0.0.1:50856/api/accounts/3 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"name":"工资卡","brand":"招商银行","card":{"type":"credit","number":"12345678"}}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 95
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"id":3,"name":"工资卡","brand":"招商银行","card":{"type":"credit","number":"12345678"}}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/accounts/3/move --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"to":0}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 213
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"accounts":[{"brand":"招商银行","card":{"number":"12345678","type":"credit"},"id":3,"name":"工资卡"},{"brand":null,"card":null,"id":1,"name":"微信"},{"brand":null,"card":null,"id":2,"name":"银行卡"}]}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/accounts/3/adjust --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"balance_cents":123456,"occurred_at":"2026-11-17T04:30:00Z"}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 307
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"balance_cents":123456,"entry":{"account_id":3,"amount_cents":123456,"category_id":null,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1da3-7119-8ba6-bbfb0464c09b","kind":"adjust","merchant":null,"note":null,"occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":null}}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/accounts/3/adjust --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"balance_cents":123456}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 37
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"balance_cents":123456,"entry":null}
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/accounts/3 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 409 Conflict
+content-type: application/json
+content-length: 51
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"error":"还有 1 笔账目在用，不能删除"}
+
+> curl --silent --show-error --request PUT http://127.0.0.1:50856/api/settings --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"cycle_day":25,"budget_cents":300000}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 74
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"budget_cents":300000,"cycle_day":25,"entry_count":4,"version":"8c8013e"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/recognize --header 'Authorization: Bearer web-api-smoke' --form image=@src/api/test.png
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 703
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"type":"choose","summary":"","draft":"eyJpZCI6IjAxYTFlNTdmLTFkZGMtNzU2Mi1iMTM0LWFiZTQxZDQzZDJjNCIsImtpbmQiOiJleHBlbnNlIiwiYW1vdW50X2NlbnRzIjozMjUwLCJjYXRlZ29yeSI6IvCfjZwg6aSQ6aWuIiwic3ViY2F0ZWdvcnkiOiLimJXvuI8g5ZKW5ZWh6aWu5ZOBIiwiYWNjb3VudCI6IuW3pei1hOWNoSIsIm1lcmNoYW50Ijoi55Ge5bm45ZKW5ZWhIiwib2NjdXJyZWRfYXQiOiIyMDI2LTExLTE3VDAxOjU0OjM1LjYxMTkyMSswODowMCIsIm5vdGUiOiLnlJ_mpLDmi7_pk4EiLCJ0YWdzIjpbXX0","field":"action","options":["💰 金额 · 32.50","↔️ 类型 · 支出","🍜 餐饮 / ☕️ 咖啡饮品","💳 账户 · 工资卡","🏪 商家 · 瑞幸咖啡","🕒 时间 · 11-17 01:54","🏷️ 标签 · 无","📝 备注 · 生椰拿铁","✅ 确认记账"],"default":"","message":""}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/step --header 'Authorization: Bearer web-api-smoke' --json '{"draft":"eyJpZCI6IjAxYTFlNTdmLTFkZGMtNzU2Mi1iMTM0LWFiZTQxZDQzZDJjNCIsImtpbmQiOiJleHBlbnNlIiwiYW1vdW50X2NlbnRzIjozMjUwLCJjYXRlZ29yeSI6IvCfjZwg6aSQ6aWuIiwic3ViY2F0ZWdvcnkiOiLimJXvuI8g5ZKW5ZWh6aWu5ZOBIiwiYWNjb3VudCI6IuW3pei1hOWNoSIsIm1lcmNoYW50Ijoi55Ge5bm45ZKW5ZWhIiwib2NjdXJyZWRfYXQiOiIyMDI2LTExLTE3VDAxOjU0OjM1LjYxMTkyMSswODowMCIsIm5vdGUiOiLnlJ_mpLDmi7_pk4EiLCJ0YWdzIjpbXX0","field":"action","value":"✅ 确认记账"}'
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 141
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"type":"done","summary":"","draft":"","field":"","options":[],"default":"","message":"已记账 ¥32.50 · 🍜 餐饮/☕️ 咖啡饮品"}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/recognitions/01a1e57f-1ddc-7562-b134-abe41d43d2c4 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 271
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"first":{"account_id":3,"amount_cents":3250,"category_id":3,"kind":"expense","merchant":"瑞幸咖啡","note":"生椰拿铁","occurred_at":"2026-11-16T17:54:35Z","tag_ids":[],"to_account_id":null},"id":"01a1e57f-1ddc-7562-b134-abe41d43d2c4","outcome":"ok","reason":null}
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/recognitions/01a1e57f-1ddc-7562-b134-abe41d43d2c4/image --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: image/png
+cache-control: private, max-age=31536000, immutable
+content-length: 68
+date: Mon, 16 Nov 2026 17:54:35 GMT
+[68 bytes, PNG 截图]
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/export.csv --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: text/csv; charset=utf-8
+content-disposition: attachment; filename="micjz-20261117.csv"
+content-length: 774
+date: Mon, 16 Nov 2026 17:54:35 GMT
+﻿时间,类型,金额,一级分类,二级分类,账户,转入账户,商家,备注,标签,来源,ID
+"2026-11-17 01:54","支出","32.50","🍜 餐饮","☕️ 咖啡饮品","工资卡","","瑞幸咖啡","生椰拿铁","","截图","01a1e57f-1dea-73a6-b2d2-a361190481f1"
+"2026-11-17 12:30","支出","32.50","🍜 餐饮","","微信","","瑞幸","","","手记","01a1e57f-1d23-744b-878b-78e7095c4640"
+"2026-11-17 12:30","收入","32.50","💰 工资","","微信","","","午饭","","手记","01a1e57f-1d31-76fd-a172-642aa28e475f"
+"2026-11-17 12:30","转账","32.50","","","微信","银行卡","","午饭","","手记","01a1e57f-1d3f-75e3-b7e8-7713a9c7f50b"
+"2026-11-17 12:30","平账","+1234.56","","","工资卡","","","","","手记","01a1e57f-1da3-7119-8ba6-bbfb0464c09b"
+
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/entries/01a1e57f-1d23-744b-878b-78e7095c4640 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+date: Mon, 16 Nov 2026 17:54:35 GMT
+
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/entries/01a1e57f-1d23-744b-878b-78e7095c4640 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 404 Not Found
+content-type: application/json
+content-length: 27
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"error":"账目不存在"}
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/entries/01a1e57f-1da3-7119-8ba6-bbfb0464c09b --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+date: Mon, 16 Nov 2026 17:54:35 GMT
+
+
+> curl --silent --show-error --request GET 'http://127.0.0.1:50856/api/entries?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z' --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 923
+date: Mon, 16 Nov 2026 17:54:35 GMT
+{"earliest":"2026-11-16T17:54:35Z","entries":[{"account_id":1,"amount_cents":3250,"category_id":null,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1d3f-75e3-b7e8-7713a9c7f50b","kind":"transfer","merchant":null,"note":"午饭","occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":2},{"account_id":1,"amount_cents":3250,"category_id":35,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1d31-76fd-a172-642aa28e475f","kind":"income","merchant":null,"note":"午饭","occurred_at":"2026-11-17T04:30:00Z","recognition_id":null,"tag_ids":[],"to_account_id":null},{"account_id":3,"amount_cents":3250,"category_id":3,"created_at":"2026-11-16T17:54:35Z","id":"01a1e57f-1dea-73a6-b2d2-a361190481f1","kind":"expense","merchant":"瑞幸咖啡","note":"生椰拿铁","occurred_at":"2026-11-16T17:54:35Z","recognition_id":"01a1e57f-1ddc-7562-b134-abe41d43d2c4","tag_ids":[],"to_account_id":null}]}
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/entries/01a1e57f-1dea-73a6-b2d2-a361190481f1 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+date: Mon, 16 Nov 2026 17:54:35 GMT
+
+
+> curl --silent --show-error --request DELETE http://127.0.0.1:50856/api/accounts/3 --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+date: Mon, 16 Nov 2026 17:54:35 GMT
+
+
+> curl --silent --show-error --request PUT http://127.0.0.1:50856/api/password --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie --json '{"current":"smoke-password","new":"changed-password"}' --cookie-jar /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+set-cookie: micjz_session=1797443676322.bbgsefEz56_nadvAoaMKyAHcmJixOEpjrTy1ZpsKOYQ; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000
+date: Mon, 16 Nov 2026 17:54:36 GMT
+
+
+> curl --silent --show-error --request GET http://127.0.0.1:50856/api/settings --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 74
+date: Mon, 16 Nov 2026 17:54:36 GMT
+{"budget_cents":300000,"cycle_day":25,"entry_count":2,"version":"8c8013e"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/login --json '{"username":"dzmfg","password":"smoke-password"}'
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+content-length: 39
+date: Mon, 16 Nov 2026 17:54:36 GMT
+{"error":"用户名或密码不正确"}
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/login --json '{"username":"dzmfg","password":"changed-password"}' --cookie-jar /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+set-cookie: micjz_session=1797443676925.bHUbTg-iDTy-OfrBC5WClgqOu8-otYAMcdpVtbvyC9w; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000
+date: Mon, 16 Nov 2026 17:54:36 GMT
+
+
+> curl --silent --show-error --request POST http://127.0.0.1:50856/api/logout --cookie /var/folders/t5/732zvf4d7fb_5wwjr80hr86m0000gn/T/micjz-web-smoke-aicc1djy/cookie
+HTTP/1.1 204 No Content
+set-cookie: micjz_session=; Max-Age=0; Path=/
+date: Mon, 16 Nov 2026 17:54:36 GMT
+
+
+PASS：所有 Web 路由及 /recognize、/step 已由真实 curl 请求验证。

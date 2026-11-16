@@ -1,4 +1,6 @@
-//! HTTP 接口：鉴权、解析请求，所有响应（含错误）统一为 flow::Reply。
+//! HTTP 入口：共享鉴权、访问日志；快捷指令协议与网页 JSON 分开。
+mod session;
+mod web;
 
 use std::{
     path::{Path, PathBuf},
@@ -31,6 +33,7 @@ const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 
 pub struct AppState {
     pub token: String,
+    pub login_limit: Mutex<crate::auth::LoginLimit>,
     pub recognizer: Recognizer,
     pub db: Db,
     /// 识别图片留存目录。
@@ -41,7 +44,8 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/recognize", post(recognize_handler))
         .route("/step", post(step_handler))
-        .fallback(not_found)
+        .merge(web::routes())
+        .fallback(web::static_file)
         .method_not_allowed_fallback(not_found)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
@@ -63,7 +67,7 @@ type TraceSlot = Arc<Mutex<Trace>>;
 #[derive(Clone)]
 struct Failure(String);
 
-/// 每个请求：终端一行（方法、路径、状态码、耗时）；通过鉴权的再在库里记一行。
+/// 终端记录所有请求；库只记通过鉴权的快捷指令请求与网页写请求。
 async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: Next) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_owned();
@@ -75,8 +79,12 @@ async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: 
     let elapsed_ms = started.elapsed().as_millis() as u64;
     let status = resp.status();
     tracing::info!(method, path, status = status.as_u16(), elapsed_ms, "请求");
-    // 401 只来自鉴权：token 不对的不进库。
-    if status == StatusCode::UNAUTHORIZED {
+    // 鉴权失败、静态文件和网页读取不进库。
+    if status == StatusCode::UNAUTHORIZED
+        || !(matches!(path.as_str(), "/recognize" | "/step")
+            || (path.starts_with("/api/")
+                && matches!(method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE")))
+    {
         return resp;
     }
     let error = resp.extensions().get::<Failure>().map(|f| f.0.clone());
@@ -96,8 +104,12 @@ async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: 
     resp
 }
 
-async fn not_found() -> ApiError {
-    ApiError(StatusCode::NOT_FOUND, "接口不存在".to_owned())
+async fn not_found(req: Request) -> Response {
+    if req.uri().path().starts_with("/api/") {
+        web::WebError(StatusCode::NOT_FOUND, "接口不存在".into()).into_response()
+    } else {
+        ApiError(StatusCode::NOT_FOUND, "接口不存在".to_owned()).into_response()
+    }
 }
 
 struct ApiError(StatusCode, String);
@@ -129,15 +141,30 @@ fn load_catalog(state: &AppState) -> Result<Catalog, ApiError> {
 }
 
 async fn auth(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
-    let expected = format!("Bearer {}", state.token);
-    let ok = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .is_some_and(|v| v.as_bytes() == expected.as_bytes());
-    if !ok {
-        return ApiError(StatusCode::UNAUTHORIZED, "鉴权失败".to_owned()).into_response();
+    let path = req.uri().path();
+    if path.starts_with("/api/") {
+        return session::middleware(State(state), req, next).await;
+    }
+    if matches!(path, "/recognize" | "/step") {
+        let bearer = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        if !bearer.is_some_and(|v| token_eq(v, &state.token)) {
+            return ApiError(StatusCode::UNAUTHORIZED, "鉴权失败".into()).into_response();
+        }
     }
     next.run(req).await
+}
+
+fn token_eq(a: &str, b: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(a.as_bytes())
+        .iter()
+        .zip(Sha256::digest(b.as_bytes()).iter())
+        .fold(0u8, |diff, (a, b)| diff | std::hint::black_box(a ^ b))
+        == 0
 }
 
 async fn recognize_handler(
