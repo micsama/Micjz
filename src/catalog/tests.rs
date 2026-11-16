@@ -63,26 +63,26 @@ fn add_rename_remove() {
 
     run(&mut conn, "account add 现金").unwrap();
     assert!(run(&mut conn, "account add 现金").is_err());
-    run(&mut conn, "account add 招行 信用卡 6225888800001234").unwrap();
+    run(&mut conn, "account add 招商银行 信用卡 6225888800001234").unwrap();
     assert!(run(&mut conn, "account add 某卡 储蓄卡 12ab").is_err());
-    run(&mut conn, "account move 招行 1").unwrap();
+    run(&mut conn, "account move 招商银行 1").unwrap();
     let cat = load(&conn).unwrap();
-    assert_eq!(cat.default_account(), "招行", "第一位是默认账户");
+    assert_eq!(cat.default_account(), "招商银行", "第一位是默认账户");
     assert_eq!(
         cat.account_lines(),
-        "招行（信用卡 尾号 1234）\n微信\n银行卡\n现金",
+        "招商银行（信用卡 尾号 1234）\n微信\n银行卡\n现金",
         "模型只看尾号"
     );
     assert!(
         run(&mut conn, "account list")
             .unwrap()
-            .contains("招行  信用卡 6225888800001234  0 笔")
+            .contains("招商银行  信用卡 6225888800001234  0 笔")
     );
     for name in ["微信", "银行卡", "现金"] {
         run(&mut conn, &format!("account rm {name}")).unwrap();
     }
     assert!(
-        run(&mut conn, "account rm 招行").is_err(),
+        run(&mut conn, "account rm 招商银行").is_err(),
         "最后一个账户不能删"
     );
 

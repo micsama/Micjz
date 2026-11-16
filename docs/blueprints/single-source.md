@@ -43,7 +43,7 @@ CREATE TABLE categories (
 CREATE TABLE accounts (
   id          INTEGER PRIMARY KEY,
   position    INTEGER NOT NULL,   -- 优先级：菜单顺序；识别不出账户时默认第一个
-  name        TEXT NOT NULL UNIQUE,                                    -- 如「招行储蓄卡」「微信零钱」
+  name        TEXT NOT NULL UNIQUE,                                    -- 如「招商银行储蓄卡」「微信零钱」
   card_type   TEXT CHECK (card_type IN ('debit', 'credit')),          -- 储蓄卡 / 信用卡；非银行卡为空
   card_number TEXT                                                     -- 完整卡号，方便复制核对；非银行卡为空
 );
