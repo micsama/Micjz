@@ -10,7 +10,7 @@ fn draft() -> Draft {
     Draft {
         id: "01".to_owned(),
         kind: Kind::Expense,
-        amount_cents: 3250,
+        amount_cents: Some(3250),
         category: "餐饮".to_owned(),
         subcategory: Some("咖啡饮品".to_owned()),
         account: Some("微信".to_owned()),
@@ -18,14 +18,13 @@ fn draft() -> Draft {
         occurred_at: now(),
         note: None,
         tags: Vec::new(),
-        warnings: Vec::new(),
     }
 }
 
 fn reply(draft: Draft, field: &str, value: &str) -> Reply {
     match step(draft, field, value, now()).unwrap() {
         Outcome::Reply(r) => r,
-        Outcome::Confirm(_) => panic!("意外确认"),
+        Outcome::Confirm { .. } => panic!("意外确认"),
     }
 }
 
@@ -59,7 +58,10 @@ fn menu_summary() {
 fn confirm_returns_draft() {
     let d = draft();
     match step(d.clone(), "action", "✅ 确认记账", now()).unwrap() {
-        Outcome::Confirm(got) => assert_eq!(got, d),
+        Outcome::Confirm {
+            draft,
+            amount_cents,
+        } => assert_eq!((draft, amount_cents), (d, 3250)),
         Outcome::Reply(_) => panic!("应当确认"),
     }
 }
@@ -88,7 +90,7 @@ fn amount_input() {
     assert_eq!((r.step, r.default.as_str()), (StepType::Number, "32.50"));
 
     let r = reply(decoded(&r), "amount", "18.5");
-    assert_eq!(decoded(&r).amount_cents, 1850);
+    assert_eq!(decoded(&r).amount_cents, Some(1850));
 
     let r = reply(decoded(&r), "amount", "abc");
     assert_eq!(r.field, "amount", "非法金额重新输入");
@@ -173,7 +175,7 @@ fn dynamic_actions_round_trip() {
         assert_eq!(reply(d.clone(), "action", option).field, field);
     }
     assert!(
-        matches!(step(d.clone(), "action", menu.options.last().unwrap(), now()).unwrap(), Outcome::Confirm(got) if got == d)
+        matches!(step(d.clone(), "action", menu.options.last().unwrap(), now()).unwrap(), Outcome::Confirm { draft, .. } if draft == d)
     );
     assert!(step(d, "action", "💰 金额 · 99.00", now()).is_err());
 }
@@ -194,10 +196,45 @@ fn decorated_choices_store_plain_values() {
 }
 
 #[test]
-fn warnings_are_not_displayed() {
+fn missing_amount_blocks_confirm() {
     let mut d = draft();
-    d.warnings.push("默认时间警告".to_owned());
-    assert!(menu(&d, now()).summary.is_empty());
-    let r = reply(d, "action", "💰 金额 · 32.50");
-    assert!(!r.summary.contains("默认时间警告"));
+    d.amount_cents = None;
+    let m = menu(&d, now());
+    assert!(m.summary.is_empty(), "不在顶部提示");
+    assert!(m.options.contains(&"💰 金额 · 请补充".to_owned()));
+
+    let r = reply(d.clone(), "action", "✅ 确认记账");
+    assert_eq!(
+        (r.step, r.field.as_str()),
+        (StepType::Number, "amount"),
+        "没金额不能确认，转去填金额"
+    );
+    assert!(r.summary.contains("¥请补充"));
+    assert_eq!(r.default, "0", "数字框预填 0");
+
+    let r = reply(decoded(&r), "amount", "0");
+    assert!(r.summary.starts_with("⚠ 金额无效"), "0 不能入账，重新输入");
+
+    let r = reply(decoded(&r), "amount", "12");
+    assert!(r.summary.is_empty());
+    assert!(matches!(
+        step(decoded(&r), "action", "✅ 确认记账", now()).unwrap(),
+        Outcome::Confirm {
+            amount_cents: 1200,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn draft_validation() {
+    let mut d = draft();
+    d.amount_cents = Some(0);
+    assert!(Draft::decode(&d.encode()).is_err());
+    let mut d = draft();
+    d.subcategory = Some("打车".to_owned());
+    assert!(Draft::decode(&d.encode()).is_err(), "二级须属于当前一级");
+    let mut d = draft();
+    d.amount_cents = None;
+    assert!(Draft::decode(&d.encode()).is_ok());
 }

@@ -3,70 +3,89 @@ tags = ["恋爱"]
 
 [[expense]]
 name = "餐饮"
-subs = ["三餐", "咖啡饮品", "零食水果", "聚餐"]
-keys = ["meal", "coffee", "snack", "dining"]
+subs = [
+  ["meal", "三餐"],
+  ["coffee", "咖啡饮品"],
+  ["snack", "零食水果"],
+  ["dining", "聚餐"],
+]
 
 [[expense]]
 name = "交通"
-subs = ["公交地铁", "打车", "加油充电", "停车", "火车飞机"]
-keys = ["transit", "taxi", "fuel", "parking", "rail"]
+subs = [
+  ["transit", "公交地铁"],
+  ["taxi", "打车"],
+  ["fuel", "加油充电"],
+  ["parking", "停车"],
+  ["rail", "火车飞机"],
+]
 
 [[expense]]
 name = "购物"
-subs = ["日用", "服饰", "数码", "家居"]
-keys = ["daily", "clothing", "digital", "home"]
+subs = [
+  ["daily", "日用"],
+  ["clothing", "服饰"],
+  ["digital", "数码"],
+  ["home", "家居"],
+]
 
 [[expense]]
 name = "居住"
-subs = ["房租", "水电燃气", "话费网费", "物业"]
-keys = ["rent", "utilities", "telecom", "property"]
+subs = [
+  ["rent", "房租"],
+  ["utilities", "水电燃气"],
+  ["telecom", "话费网费"],
+  ["property", "物业"],
+]
 
 [[expense]]
 name = "娱乐"
-subs = ["会员订阅", "游戏", "电影演出", "旅行"]
-keys = ["subscription", "game", "show", "travel"]
+subs = [
+  ["subscription", "会员订阅"],
+  ["game", "游戏"],
+  ["show", "电影演出"],
+  ["travel", "旅行"],
+]
 
 [[expense]]
 name = "医疗"
-subs = ["药品", "门诊"]
-keys = ["medicine", "clinic"]
+subs = [
+  ["medicine", "药品"],
+  ["clinic", "门诊"],
+]
 
 [[expense]]
 name = "人情"
-subs = ["红包", "礼物", "请客"]
-keys = ["redpacket", "gift", "treat"]
+subs = [
+  ["redpacket", "红包"],
+  ["gift", "礼物"],
+  ["treat", "请客"],
+]
 
 [[expense]]
 name = "其他"
-subs = []
-keys = ["other"]
+key = "other"
 
 [[income]]
 name = "工资"
-subs = []
-keys = ["salary"]
+key = "salary"
 
 [[income]]
 name = "奖金"
-subs = []
-keys = ["bonus"]
+key = "bonus"
 
 [[income]]
 name = "红包"
-subs = []
-keys = ["redpacket_in"]
+key = "redpacket_in"
 
 [[income]]
 name = "退款"
-subs = []
-keys = ["refund"]
+key = "refund"
 
 [[income]]
 name = "理财"
-subs = []
-keys = ["investment"]
+key = "investment"
 
 [[income]]
 name = "其他"
-subs = []
-keys = ["other_in"]
+key = "other_in"

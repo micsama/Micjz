@@ -8,53 +8,75 @@ fn now() -> DateTime<FixedOffset> {
         .unwrap()
 }
 
-fn output(json: &str) -> Output {
-    serde_json::from_str(json).unwrap()
+fn draft(json: &str) -> Draft {
+    build_draft(
+        Output::from_json(&serde_json::from_str(json).unwrap()),
+        now(),
+    )
 }
 
 #[test]
 fn full_output() {
-    let d = build_draft(
-        output(
-            r#"{"ok":true,"reason":null,"kind":"expense","amount":"32.50","merchant":"瑞幸咖啡",
-                "account":"微信","occurred_at":"2026-11-16 12:05","category":"coffee"}"#,
-        ),
-        now(),
-    )
-    .unwrap();
-    assert_eq!(d.amount_cents, 3250);
-    assert_eq!(d.subcategory.as_deref(), Some("咖啡饮品"));
+    let d = draft(
+        r#"{"ok":true,"kind":"expense","amount":"32.50","merchant":"瑞幸咖啡","item":"生椰拿铁",
+            "account":"微信","occurred_at":"2026-11-16 12:05","category":"coffee"}"#,
+    );
+    assert_eq!(d.amount_cents, Some(3250));
+    assert_eq!(
+        (d.category.as_str(), d.subcategory.as_deref()),
+        ("餐饮", Some("咖啡饮品"))
+    );
     assert_eq!(d.occurred_at.to_rfc3339(), "2026-11-16T12:05:00+08:00");
-    assert!(d.warnings.is_empty());
+    assert_eq!(d.note.as_deref(), Some("生椰拿铁"), "商品名进备注");
 }
 
 #[test]
-fn falls_back_with_warnings() {
-    let d = build_draft(
-        output(
-            r#"{"ok":true,"kind":"expense","amount":18.5,"account":"支付宝",
-                "category":null}"#,
-        ),
-        now(),
-    )
-    .unwrap();
-    assert_eq!(d.amount_cents, 1850);
+fn invalid_fields_become_empty() {
+    let d = draft(
+        r#"{"ok":true,"amount":"abc","merchant":123,"account":"支付宝",
+            "occurred_at":"昨天","category":"nope","item":"  "}"#,
+    );
+    assert_eq!(d.amount_cents, None, "金额不合规置空，让用户填");
     assert_eq!((d.category.as_str(), d.subcategory), (OTHER, None));
-    assert_eq!(d.account, None, "不在列表的账户留空");
+    assert_eq!(d.account, None);
+    assert_eq!(d.merchant.as_deref(), Some("123"));
     assert_eq!(d.occurred_at, now());
-    assert!(d.warnings.is_empty());
+    assert_eq!(d.note, None);
 }
 
 #[test]
-fn rejects_non_payment_and_missing_amount() {
-    assert!(matches!(
-        build_draft(output(r#"{"ok":false,"reason":"聊天截图"}"#), now()),
-        Err(RecognizeError::NotPayment(r)) if r == "聊天截图"
-    ));
-    assert!(matches!(
-        build_draft(output(r#"{"ok":true,"amount":null}"#), now()),
-        Err(RecognizeError::NoAmount)
-    ));
+fn recent_time_uses_now() {
+    let d = draft(r#"{"ok":true,"amount":1,"occurred_at":"2026-11-16 13:30"}"#);
+    assert_eq!(d.occurred_at, now(), "30 分钟内用识别时刻");
+    assert_eq!(d.amount_cents, Some(100), "数字金额也收");
+}
+
+#[test]
+fn income_key_must_match_kind() {
+    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"refund"}"#);
+    assert_eq!((d.kind, d.category.as_str()), (Kind::Income, "退款"));
+    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"coffee"}"#);
+    assert_eq!(d.category, OTHER, "支出 key 不能用在收入上");
+}
+
+#[test]
+fn unparseable_output_fails_whole() {
+    assert!(parse_output("not json").is_err());
+    let wrap = |content: &str| json!({"choices":[{"message":{"content":content}}]}).to_string();
+    assert!(parse_output(&wrap("[1]")).is_err());
+    let out = parse_output(&wrap(r#"{"ok":false,"reason":"聊天截图"}"#)).unwrap();
+    assert!(!out.ok);
+    assert_eq!(out.reason.as_deref(), Some("聊天截图"));
+}
+
+#[tokio::test]
+async fn mock_always_ok() {
+    let r = Recognizer::Mock
+        .recognize(b"\x89PNG\r\n\x1a\n", "image/png", now())
+        .await;
+    assert_eq!(r.outcome, Outcome::Ok);
+    assert!(r.prompt.contains("coffee: 餐饮/咖啡饮品"));
+    assert!(r.parameters.contains("json_object"));
 }
 
 #[test]

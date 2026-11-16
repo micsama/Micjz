@@ -11,22 +11,26 @@ const PNG: &[u8] = include_bytes!("test.png");
 struct Server {
     base: String,
     db_path: std::path::PathBuf,
+    images_dir: std::path::PathBuf,
     http: reqwest::Client,
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_dir_all(&self.images_dir);
     }
 }
 
 async fn server() -> Server {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let db_path = std::env::temp_dir().join(format!("micjz-test-{}.db", uuid::Uuid::now_v7()));
+    let dir = std::env::temp_dir().join(format!("micjz-test-{}", uuid::Uuid::now_v7()));
+    let (db_path, images_dir) = (dir.with_extension("db"), dir.join("images"));
     let state = AppState {
         token: TOKEN.to_owned(),
         recognizer: Recognizer::Mock,
         db: Db::open(&db_path).unwrap(),
+        images_dir: images_dir.clone(),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -34,6 +38,7 @@ async fn server() -> Server {
     Server {
         base,
         db_path,
+        images_dir,
         http: reqwest::Client::new(),
     }
 }
@@ -135,7 +140,14 @@ async fn recognize_then_confirm_saves_once() {
             r.get(0)
         })
         .unwrap();
-    assert!(std::path::Path::new(&path).exists());
+    // 图片由后台任务写入。
+    for _ in 0..50 {
+        if std::path::Path::new(&path).exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(std::path::Path::new(&path).exists(), "图片已留存：{path}");
 }
 
 #[tokio::test]
@@ -186,7 +198,7 @@ async fn errors_are_json_done() {
 
     let (status, v) = s.recognize("image", b"not an image").await;
     assert_eq!(status, 400);
-    assert_done(&v, "图片无法解码");
+    assert_done(&v, "图片格式不支持");
 
     let (status, v) = s
         .send(s.http.post(url("/step")).bearer_auth(TOKEN).body("{"))

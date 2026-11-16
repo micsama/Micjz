@@ -1,9 +1,15 @@
+//! SQLite：`entries`/`entry_tags` 是最终账目，`recognitions` 留存每次识别的输入输出。
+//! 只认当前表结构；结构变化写 `deploy/` 下的 SQL 脚本手动执行。
+
 use std::{path::Path, sync::Mutex};
 
 use anyhow::Context;
 use rusqlite::{Connection, params};
 
-use crate::flow::{self, Draft, Kind};
+use crate::{
+    flow::{self, Draft},
+    recognize::Recognized,
+};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS entries (
@@ -27,35 +33,34 @@ CREATE TABLE IF NOT EXISTS entry_tags (
   PRIMARY KEY (entry_id, tag)
 );
 
+-- outcome：ok / rejected（模型说不是支付页）/ error（调用或解析失败）
 CREATE TABLE IF NOT EXISTS recognitions (
- draft_id TEXT PRIMARY KEY, at TEXT NOT NULL, outcome TEXT NOT NULL,
- model TEXT NOT NULL, elapsed_ms INTEGER, image_sha256 TEXT, image_bytes INTEGER,
- image_path TEXT, prompt TEXT NOT NULL, parameters TEXT NOT NULL,
- raw TEXT, reason TEXT, origin TEXT, timings TEXT, confirmed_at TEXT
+  draft_id     TEXT PRIMARY KEY,
+  at           TEXT NOT NULL,
+  outcome      TEXT NOT NULL,
+  model        TEXT NOT NULL,
+  elapsed_ms   INTEGER,
+  image_sha256 TEXT,
+  image_bytes  INTEGER,
+  image_path   TEXT,
+  prompt       TEXT NOT NULL,
+  parameters   TEXT NOT NULL,
+  raw          TEXT,
+  reason       TEXT,
+  origin       TEXT,
+  timings      TEXT,
+  confirmed_at TEXT
 );
-
 ";
 
-pub struct Db(Mutex<Connection>, pub std::path::PathBuf);
+pub struct Db(Mutex<Connection>);
 
-/// 一次识别的留痕。
-pub struct Recognition<'a> {
-    pub draft_id: &'a str,
-    /// ok / rejected / error
-    pub outcome: &'a str,
-    pub model: &'a str,
-    pub elapsed_ms: u64,
-    pub image_sha256: &'a str,
-    pub image_bytes: usize,
-    /// 模型原始返回（失败时是错误正文）。
-    pub raw: &'a str,
-    pub reason: Option<&'a str>,
-    /// 归一化后的原始草稿，即用户第一次看到的那些值。
-    pub origin: Option<&'a Draft>,
-    pub image_path: &'a str,
-    pub prompt: &'a str,
-    pub parameters: &'a str,
-    pub timings: &'a str,
+/// 识别时收到的图片。
+pub struct Image<'a> {
+    pub sha256: &'a str,
+    pub bytes: usize,
+    /// 留存路径；文件由后台任务写入。
+    pub path: &'a str,
 }
 
 impl Db {
@@ -67,20 +72,15 @@ impl Db {
             Connection::open(path).with_context(|| format!("打开数据库 {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA).context("建表")?;
-        Ok(Db(
-            Mutex::new(conn),
-            path.parent().unwrap_or(Path::new(".")).join("images"),
-        ))
+        Ok(Db(Mutex::new(conn)))
     }
 
-    /// 以草稿 ID 入账；已存在则不变（重复确认是同一笔）。返回是否新插入。
-    pub fn save(&self, d: &Draft) -> rusqlite::Result<bool> {
+    /// 以草稿 ID 入账并标记识别已确认，同一事务；已存在则不变（重复确认是同一笔）。
+    /// 返回是否新插入。
+    pub fn save(&self, d: &Draft, amount_cents: i64) -> rusqlite::Result<bool> {
         let mut conn = self.0.lock().expect("数据库锁未中毒");
         let tx = conn.transaction()?;
-        let kind = match d.kind {
-            Kind::Expense => "expense",
-            Kind::Income => "income",
-        };
+        let now = flow::now().to_rfc3339();
         let inserted = tx.execute(
             "INSERT INTO entries (id, kind, amount_cents, category, subcategory, account,
                                   merchant, occurred_at, note, created_at,
@@ -89,15 +89,15 @@ impl Db {
              ON CONFLICT(id) DO NOTHING",
             params![
                 d.id,
-                kind,
-                d.amount_cents,
+                d.kind.as_str(),
+                amount_cents,
                 d.category,
                 d.subcategory,
                 d.account,
                 d.merchant,
                 d.occurred_at.to_rfc3339(),
                 d.note,
-                flow::now().to_rfc3339(),
+                now,
                 d.id,
             ],
         )? == 1;
@@ -109,33 +109,41 @@ impl Db {
                 )?;
             }
         }
-        tx.execute("UPDATE recognitions SET confirmed_at = ?2 WHERE draft_id = ?1 AND confirmed_at IS NULL", params![d.id, flow::now().to_rfc3339()])?;
+        tx.execute(
+            "UPDATE recognitions SET confirmed_at = ?2 WHERE draft_id = ?1 AND confirmed_at IS NULL",
+            params![d.id, now],
+        )?;
         tx.commit()?;
         Ok(inserted)
     }
 
-    /// 保存识别记录；失败明确返回。
-    pub fn record_recognition(&self, r: &Recognition<'_>) -> rusqlite::Result<()> {
+    /// 保存一次识别；`origin` 是用户第一眼看到的草稿。
+    pub fn record_recognition(
+        &self,
+        r: &Recognized,
+        image: &Image<'_>,
+        timings: &str,
+    ) -> rusqlite::Result<()> {
         self.0.lock().expect("数据库锁未中毒").execute(
             "INSERT INTO recognitions (draft_id, at, outcome, model, elapsed_ms, image_sha256,
-             image_bytes, raw, reason, origin, image_path, prompt, parameters, timings)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                                       image_bytes, image_path, prompt, parameters, raw, reason,
+                                       origin, timings)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
-                r.draft_id,
+                r.draft.id,
                 flow::now().to_rfc3339(),
-                r.outcome,
+                r.outcome.as_str(),
                 r.model,
-                r.elapsed_ms as i64,
-                r.image_sha256,
-                r.image_bytes as i64,
-                r.raw,
-                r.reason,
-                r.origin
-                    .map(|d| serde_json::to_string(d).expect("草稿可序列化")),
-                r.image_path,
+                r.model_ms as i64,
+                image.sha256,
+                image.bytes as i64,
+                image.path,
                 r.prompt,
                 r.parameters,
-                r.timings
+                r.raw,
+                r.reason,
+                serde_json::to_string(&r.draft).expect("草稿可序列化"),
+                timings,
             ],
         )?;
         Ok(())

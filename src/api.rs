@@ -1,6 +1,10 @@
 //! HTTP 接口：鉴权、解析请求，所有响应（含错误）统一为 flow::Reply。
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
 use axum::{
     Json, Router,
@@ -16,9 +20,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    db::{Db, Recognition},
+    db::{self, Db},
     flow::{self, Draft, Outcome, Reply},
-    recognize::Recognizer,
+    recognize::{self, Recognizer},
 };
 
 /// Mac Retina 全屏截图可达十几 MB。
@@ -28,6 +32,8 @@ pub struct AppState {
     pub token: String,
     pub recognizer: Recognizer,
     pub db: Db,
+    /// 识别图片留存目录。
+    pub images_dir: PathBuf,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -106,79 +112,91 @@ async fn recognize_handler(
         names.push(name);
     }
     let image = image.ok_or_else(|| bad_request(format!("缺少 image，收到字段 {names:?}")))?;
+    let mime =
+        recognize::mime(&image).ok_or_else(|| bad_request("图片格式不支持，仅支持 PNG / JPEG"))?;
     let upload_ms = started.elapsed().as_millis() as u64;
-    let saving = Instant::now();
-    let decoded =
-        image::load_from_memory(&image).map_err(|e| bad_request(format!("图片无法解码：{e}")))?;
-    let image_path = save_image(&state.db.1, &image, &decoded).map_err(|e| {
-        tracing::error!(error = %e, "图片解码或保存失败");
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "图片无法解码或保存".into(),
-        )
-    })?;
-    let image_ms = saving.elapsed().as_millis() as u64;
-    let now = flow::now();
+
+    // 留存不挡识别：后台写盘（PNG 顺便无损压缩），失败只记日志。
     let sha = sha256_hex(&image);
-    let recognized = state.recognizer.recognize(&image, now).await;
-    let meta = &recognized.meta;
-    let draft_id = match &recognized.result {
-        Ok(draft) => draft.id.clone(),
-        Err(_) => uuid::Uuid::now_v7().to_string(),
-    };
-    let (outcome, reason, origin) = match &recognized.result {
-        Ok(draft) => ("ok", None, Some(draft)),
-        Err(e) => (e.outcome(), Some(e.to_string()), None),
-    };
-    let db_started = Instant::now();
-    state.db.record_recognition(&Recognition {
-        draft_id: &draft_id,
-        outcome,
-        model: &meta.model,
-        elapsed_ms: meta.elapsed_ms,
-        image_sha256: &sha,
-        image_bytes: image.len(),
-        raw: &meta.raw,
-        reason: reason.as_deref(),
-        origin,
-        image_path: &image_path,
-        prompt: &meta.prompt,
-        parameters: &meta.parameters,
-        timings: &serde_json::json!({"upload_ms":upload_ms,"image_ms":image_ms,"model_ms":meta.elapsed_ms}).to_string(),
-    }).map_err(|e| {
-        tracing::error!(error = %e, "保存识别记录失败");
-        ApiError(StatusCode::INTERNAL_SERVER_ERROR, "保存识别记录失败".into())
-    })?;
-    tracing::info!(
-        upload_ms,
-        image_ms,
-        model_ms = meta.elapsed_ms,
-        db_ms = db_started.elapsed().as_millis() as u64,
-        total_ms = started.elapsed().as_millis() as u64,
-        "识别阶段耗时"
-    );
-    match recognized.result {
-        Ok(draft) => {
-            tracing::info!(id = %draft.id, bytes = image.len(), "识别完成");
-            Ok(Json(flow::menu(&draft, now)))
-        }
-        Err(e) => {
-            if outcome == "error" {
-                tracing::warn!(reason = %e, "识别失败");
-            } else {
-                tracing::info!(reason = %e, "识别无结果");
+    let ext = if mime == "image/png" { "png" } else { "jpg" };
+    let path = state.images_dir.join(format!("{sha}.{ext}"));
+    tokio::task::spawn_blocking({
+        let (image, path) = (image.clone(), path.clone());
+        move || {
+            if let Err(e) = store_image(&path, &image) {
+                tracing::error!(path = %path.display(), error = %format!("{e:#}"), "图片留存失败");
             }
-            Ok(Json(Reply::done(e.to_string())))
         }
-    }
+    });
+
+    let now = flow::now();
+    let r = state.recognizer.recognize(&image, mime, now).await;
+    let timings = serde_json::json!({ "upload_ms": upload_ms, "model_ms": r.model_ms }).to_string();
+    let image_meta = db::Image {
+        sha256: &sha,
+        bytes: image.len(),
+        path: &path.to_string_lossy(),
+    };
+    state
+        .db
+        .record_recognition(&r, &image_meta, &timings)
+        .map_err(|e| {
+            tracing::error!(error = ?e, "保存识别记录失败");
+            ApiError(StatusCode::INTERNAL_SERVER_ERROR, "保存识别记录失败".into())
+        })?;
+    tracing::info!(
+        id = %r.draft.id,
+        outcome = r.outcome.as_str(),
+        bytes = image.len(),
+        upload_ms,
+        model_ms = r.model_ms,
+        total_ms = started.elapsed().as_millis() as u64,
+        "识别"
+    );
+    Ok(Json(flow::menu(&r.draft, now)))
 }
 
-/// 图片内容指纹，同一张截图重复识别可查。
+/// 已存在（同一张图）就跳过；PNG 无损重压，更小才用。
+fn store_image(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let smaller = if path.extension().is_some_and(|e| e == "png") {
+        recompress_png(bytes).unwrap_or_else(|e| {
+            tracing::warn!(error = %format!("{e:#}"), "PNG 重压失败，存原图");
+            None
+        })
+    } else {
+        None
+    };
+    std::fs::write(path, smaller.as_deref().unwrap_or(bytes))?;
+    Ok(())
+}
+
+fn recompress_png(bytes: &[u8]) -> anyhow::Result<Option<Vec<u8>>> {
+    use image::{
+        ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+    };
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)?;
+    let mut out = Vec::new();
+    PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::Adaptive)
+        .write_image(
+            img.as_bytes(),
+            img.width(),
+            img.height(),
+            img.color().into(),
+        )?;
+    Ok((out.len() < bytes.len()).then_some(out))
+}
+
+/// 图片内容指纹，也是留存文件名。
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[derive(Deserialize)]
@@ -200,10 +218,13 @@ async fn step_handler(
             tracing::info!(next = ?reply.step, field = %reply.field, "下一步");
             Ok(Json(reply))
         }
-        Outcome::Confirm(draft) => match state.db.save(&draft) {
+        Outcome::Confirm {
+            draft,
+            amount_cents,
+        } => match state.db.save(&draft, amount_cents) {
             Ok(inserted) => {
                 tracing::info!(id = %draft.id, inserted, "入账");
-                Ok(Json(Reply::done(flow::saved_message(&draft))))
+                Ok(Json(Reply::done(flow::saved_message(&draft, amount_cents))))
             }
             Err(e) => {
                 tracing::error!(id = %draft.id, error = ?e, "入账失败");
@@ -218,36 +239,3 @@ async fn step_handler(
 
 #[cfg(test)]
 mod tests;
-
-fn save_image(
-    dir: &std::path::Path,
-    bytes: &[u8],
-    image: &image::DynamicImage,
-) -> anyhow::Result<String> {
-    use image::ImageEncoder;
-    let mut encoded = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(
-        &mut encoded,
-        image::codecs::png::CompressionType::Best,
-        image::codecs::png::FilterType::Adaptive,
-    )
-    .write_image(
-        image.as_bytes(),
-        image.width(),
-        image.height(),
-        image.color().into(),
-    )?;
-    let (data, ext) = if encoded.len() < bytes.len() {
-        (encoded.as_slice(), "png")
-    } else if bytes.starts_with(b"\x89PNG") {
-        (bytes, "png")
-    } else {
-        (bytes, "jpg")
-    };
-    std::fs::create_dir_all(dir)?;
-    let path = dir.join(format!("{}.{}", sha256_hex(bytes), ext));
-    if !path.exists() {
-        std::fs::write(&path, data)?;
-    }
-    Ok(path.to_string_lossy().into_owned())
-}
