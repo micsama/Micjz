@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host",
     "demo": "vite --host --mode mock",
-    "build": "vite build",
+    "build": "bun node_modules/vite/bin/vite.js build",
     "format": "prettier --write src mock vite.config.ts",
     "check": "prettier --check src mock vite.config.ts && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
