@@ -22,7 +22,7 @@
 
 ```sh
 cp data/micjz.db data/micjz.db.before-emoji
-sqlite3 data/micjz.db < category-emoji.sql
+sed -n '/^BEGIN;/,/^COMMIT;/p' docs/ops/category-emoji.md | sqlite3 data/micjz.db
 micjz category list    # 核对；没补上的是改过名的，用 micjz category rename 自己补
 ```
 
