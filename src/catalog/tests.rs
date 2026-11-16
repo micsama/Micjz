@@ -4,7 +4,7 @@ fn db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn.execute_batch(crate::db::SCHEMA).unwrap();
-    seed(&conn).unwrap();
+    conn.execute_batch(SEED).unwrap();
     conn
 }
 
@@ -14,14 +14,11 @@ fn run(conn: &mut Connection, cmd: &str) -> anyhow::Result<String> {
 }
 
 #[test]
-fn seed_once() {
-    let conn = db();
-    let cat = load(&conn).unwrap();
-    assert_eq!(
-        cat.key_lines(Kind::Expense),
-        defaults().key_lines(Kind::Expense)
-    );
-    assert_eq!(cat.accounts, defaults().accounts);
+fn seed_data() {
+    let cat = load(&db()).unwrap();
+    assert!(cat.category(Kind::Expense, OTHER).is_some());
+    assert!(cat.category(Kind::Income, OTHER).is_some());
+    assert_eq!(cat.accounts, ["微信", "银行卡"]);
     assert_eq!(
         cat.by_key(Kind::Expense, "coffee"),
         Some(("餐饮", Some("咖啡饮品")))
@@ -31,8 +28,6 @@ fn seed_once() {
         None,
         "有二级的一级不给模型"
     );
-    seed(&conn).unwrap();
-    assert_eq!(load(&conn).unwrap().accounts.len(), cat.accounts.len());
 }
 
 #[test]

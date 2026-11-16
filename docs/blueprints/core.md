@@ -109,7 +109,7 @@ JSON → base64url，快捷指令原样回传；草稿里存名称，入账时�
 
 - 确认：`ON CONFLICT(id) DO NOTHING`，重复确认只记一笔，仍返回「已记账」。
 - 图片：识别不等留存；后台任务写 `images/<原图 sha256>.<png|jpg>`，PNG 无损重压更小才用，失败只记日志。
-- 只认当前表结构；结构变化写 `deploy/*.sql` 手动执行。
+- 只认当前表结构：库版本存 `PRAGMA user_version`，与 `src/schema_version` 不符就拒绝启动。旧库由 `./build.sh run|start` 备份后按 `deploy/db/<N>-*.sql` 逐版转换，见 `readme.md`「部署」。
 
 ## 8. 验收
 

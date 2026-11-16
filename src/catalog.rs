@@ -75,24 +75,15 @@ impl Catalog {
     }
 }
 
-/// 新库（还没有分类）写入初始数据。
-pub fn seed(conn: &Connection) -> anyhow::Result<()> {
-    let empty: bool = conn.query_row("SELECT NOT EXISTS (SELECT 1 FROM categories)", [], |r| {
-        r.get(0)
-    })?;
-    if empty {
-        conn.execute_batch(&format!("BEGIN;\n{}\nCOMMIT;", include_str!("seed.sql")))
-            .context("写入初始分类")?;
-    }
-    Ok(())
-}
+/// 新库的初始分类、账户、标签，建库时执行。
+pub const SEED: &str = include_str!("seed.sql");
 
 /// 测试用：初始数据的快照。
 #[cfg(test)]
 pub fn defaults() -> Catalog {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(crate::db::SCHEMA).unwrap();
-    seed(&conn).unwrap();
+    conn.execute_batch(SEED).unwrap();
     load(&conn).unwrap()
 }
 

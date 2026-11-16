@@ -1,4 +1,4 @@
--- 新库的初始分类、账户、标签：库里还没有分类时由二进制执行一次，迁移脚本也 .read 它。
+-- 新库的初始分类、账户、标签：建库时执行一次。
 -- 之后以数据库为准，用 `micjz category|account|tag ...` 管理（见 readme.md）。
 -- 每个分类都有 key（小写英文，全局唯一）；只有叶子的 key 会给模型。
 INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '餐饮', 'food');

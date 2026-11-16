@@ -29,7 +29,6 @@ entry_tags (entry_id, tag_id → tags)
 ## 初始数据与迁移
 
 - 新库：`categories` 为空时执行 `src/seed.sql`（编进二进制）。数据库是唯一来源，没有配置文件。
-- 已有库：`deploy/migrate-catalog.sql`（在仓库根目录 `sqlite3 data/micjz.db < deploy/migrate-catalog.sql`），`.read src/seed.sql` 建初始数据，旧账目里用过的账户、标签一并保留，按名字回填 id；有初始数据之外的分类会整体回滚。
 
 ## 管理入口
 

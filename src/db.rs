@@ -1,6 +1,6 @@
 //! SQLite：`entries`/`entry_tags` 是最终账目，引用 `categories`/`accounts`/`tags`；
 //! `recognitions` 留存每次识别的输入输出。
-//! 只认当前表结构；结构变化写 `deploy/` 下的 SQL 脚本手动执行。
+//! 只认当前表结构（新库直接建）；旧库由 `./build.sh` 调 `deploy/db/convert.py` 转换。
 
 use std::{
     path::Path,
@@ -18,28 +18,28 @@ use crate::{
 
 pub const SCHEMA: &str = "
 -- parent_id 为空是一级；每个分类都有模型 key。外键保证有账目或二级的分类删不掉。
-CREATE TABLE IF NOT EXISTS categories (
+CREATE TABLE categories (
   id        INTEGER PRIMARY KEY,
   kind      TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
   parent_id INTEGER REFERENCES categories(id),
   name      TEXT NOT NULL,
   key       TEXT NOT NULL UNIQUE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name
+CREATE UNIQUE INDEX idx_categories_name
   ON categories(kind, coalesce(parent_id, 0), name);
 
-CREATE TABLE IF NOT EXISTS accounts (
+CREATE TABLE accounts (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE IF NOT EXISTS tags (
+CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE
 );
 
 -- category_id 指向最细一级：选了二级就是二级。
-CREATE TABLE IF NOT EXISTS entries (
+CREATE TABLE entries (
   id           TEXT PRIMARY KEY,
   kind         TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
@@ -51,16 +51,16 @@ CREATE TABLE IF NOT EXISTS entries (
   created_at   TEXT NOT NULL,
   draft_id     TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_entries_occurred ON entries(occurred_at);
+CREATE INDEX idx_entries_occurred ON entries(occurred_at);
 
-CREATE TABLE IF NOT EXISTS entry_tags (
+CREATE TABLE entry_tags (
   entry_id TEXT NOT NULL REFERENCES entries(id),
   tag_id   INTEGER NOT NULL REFERENCES tags(id),
   PRIMARY KEY (entry_id, tag_id)
 );
 
 -- outcome：ok / rejected（模型说不是支付页）/ error（调用或解析失败）
-CREATE TABLE IF NOT EXISTS recognitions (
+CREATE TABLE recognitions (
   draft_id     TEXT PRIMARY KEY,
   at           TEXT NOT NULL,
   outcome      TEXT NOT NULL,
@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS recognitions (
   confirmed_at TEXT
 );
 ";
+
+/// 当前表结构版本，存在库的 `PRAGMA user_version`；`deploy/db/convert.py` 也读这个文件。
+pub fn schema_version() -> u32 {
+    include_str!("schema_version")
+        .trim()
+        .parse()
+        .expect("schema_version 是数字")
+}
 
 pub struct Db(Mutex<Connection>);
 
@@ -97,8 +105,25 @@ impl Db {
         let conn =
             Connection::open(path).with_context(|| format!("打开数据库 {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
-        conn.execute_batch(SCHEMA).context("建表")?;
-        catalog::seed(&conn)?;
+        let fresh: bool = conn.query_row(
+            "SELECT NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table')",
+            [],
+            |r| r.get(0),
+        )?;
+        if fresh {
+            conn.execute_batch(&format!(
+                "BEGIN;\n{SCHEMA}\n{}\nPRAGMA user_version = {};\nCOMMIT;",
+                catalog::SEED,
+                schema_version()
+            ))
+            .context("建库")?;
+        }
+        let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        anyhow::ensure!(
+            version == schema_version(),
+            "数据库结构 v{version}，程序需要 v{}：先运行 ./build.sh 转换",
+            schema_version()
+        );
         Ok(Db(Mutex::new(conn)))
     }
 

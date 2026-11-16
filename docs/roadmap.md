@@ -104,7 +104,7 @@ tags       (id, name)
 
 - `/recognize` 接 DeepSeek 视觉，校验输出。
 - 确认时写 SQLite（`ON CONFLICT(id) DO NOTHING`）。
-- `build.sh` + `deploy/micjz.service`，服务器上编译运行。
+- `build.sh`，服务器上编译、screen 常驻；启动前按版本备份、转换旧库。
 - 20～30 张真实截图（微信 / 支付宝、优惠、多金额、退款、非成功页）验收，记录金额准确率和人工修改比例。
 
 **交付**：日常能用，数据开始积累。快捷指令理想情况下不改。
@@ -135,4 +135,4 @@ tags       (id, name)
 - **Rust 单 crate**（不建 workspace）：`tokio` + `axum` + `serde` + `rusqlite`（bundled）+ `reqwest`（rustls）+ `thiserror` / `anyhow` + `tracing`。
 - **DeepSeek**：OpenAI 兼容接口，`reqwest` 直接调，不引 SDK；模型名放配置（gpt 文档说是 `deepseek-flash`，接入时按官方文档再核实）。
 - **网页（v2 起）**：`web/` 下 Bun + Vite + Svelte，构建产物用 `rust-embed` 嵌进二进制。
-- **部署**：服务器上 `git pull` → `./build.sh` 编译 → systemd 托管单个二进制；HTTPS 交给已有反代（没有就用 Caddy）。
+- **部署**：服务器上 `git pull` → `./build.sh` 编译 → screen 里 `./build.sh start`；HTTPS 交给已有反代（没有就用 Caddy）。
