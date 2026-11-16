@@ -1,7 +1,7 @@
 // 页面状态和所有操作；主题只负责展示，改数据都走这里。
 import type { Account, Entry, FieldKey, Fields } from "./types";
-import { catalog, entries as mockEntries } from "./mock";
-import { dayKey, periodOf, periodRange } from "./format";
+import { balances, catalog, entries as mockEntries } from "./mock";
+import { dayKey, isYear, periodOf, periodRange, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
 export type Tab = "list" | "wealth" | "settings";
@@ -23,10 +23,35 @@ export const prefs: Prefs = $state({ cycleDay: 1, budget: 300000, ...JSON.parse(
 export function setPrefs(patch: Partial<Prefs>) {
   Object.assign(prefs, patch);
   localStorage.setItem(PREFS, JSON.stringify(prefs));
-  app.period = currentPeriod();
+  app.period = currentPeriod(isYear(app.period));
 }
 
-export const currentPeriod = () => periodOf(new Date().toISOString(), prefs.cycleDay);
+/** 今天所在的周期；`year` 为真时取所在的年。 */
+export const currentPeriod = (year = false) => {
+  const m = periodOf(new Date().toISOString(), prefs.cycleDay);
+  return year ? m.slice(0, 4) : m;
+};
+
+/** 已经是最新的周期，不能再往后翻。 */
+export const isLatest = (key: string) => key >= currentPeriod(isYear(key));
+
+/** 切到年再切回月时，回到原来看的那个月。 */
+let lastMonth = "";
+
+/** 按月或按年看；切换时尽量停在同一段时间里。 */
+export function setUnit(year: boolean) {
+  if (year === isYear(app.period)) return;
+  if (year) {
+    lastMonth = app.period;
+    app.period = app.period.slice(0, 4);
+    return;
+  }
+  const y = app.period;
+  app.period = within(lastMonth, y) ? lastMonth : y === currentPeriod(true) ? currentPeriod() : `${y}-12`;
+}
+
+/** 周期的支出预算：按年看是每月预算的 12 倍。 */
+export const budgetOf = (key: string) => (prefs.budget === null ? null : prefs.budget * (isYear(key) ? 12 : 1));
 
 interface Toast {
   text: string;
@@ -34,12 +59,22 @@ interface Toast {
 }
 
 const UNDO_MS = 4000;
+const HIDE = "micjz.hideBalance";
+
+export function toggleBalance() {
+  app.hideBalance = !app.hideBalance;
+  localStorage.setItem(HIDE, app.hideBalance ? "1" : "0");
+}
 
 export const app = $state({
   catalog,
   entries: mockEntries(),
-  /** 正在看的记账周期，见 `periodOf`。 */
+  /** 正在看的记账周期，月或年，见 `periodOf`。账目、财富、统计三页共用。 */
   period: currentPeriod(),
+  /** 各账户此刻的余额，分，负数是欠款。正式版由对账快照推算（见 brainstorm/balance.md），原型里是假数据。 */
+  balances,
+  /** 隐藏余额，在别人面前打开时用。 */
+  hideBalance: localStorage.getItem(HIDE) === "1",
   tab: "list" as Tab,
   /** 推入的页面，栈顶是当前页。 */
   stack: [] as Page[],
@@ -53,7 +88,7 @@ export const find = (id: string) => app.entries.find((e) => e.id === id);
 
 export function periodEntries(period: string, account?: string): Entry[] {
   return app.entries.filter(
-    (e) => periodOf(e.occurred_at, prefs.cycleDay) === period && !app.hidden.includes(e.id) && (!account || e.account === account),
+    (e) => within(periodOf(e.occurred_at, prefs.cycleDay), period) && !app.hidden.includes(e.id) && (!account || e.account === account),
   );
 }
 
@@ -71,25 +106,52 @@ export function byDay(list: Entry[]): { day: string; at: string; entries: Entry[
   }));
 }
 
-/** 周期内每天的支出，下标 0 是周期第一天。 */
-export function daily(period: string, list: Entry[]): number[] {
+/** 周期内的支出柱：按月看每天一根，按年看每月一根；下标 0 是第一天或 1 月。 */
+export function spendBars(period: string, list: Entry[]): number[] {
   const { start, days } = periodRange(period, prefs.cycleDay);
-  const out = new Array(days).fill(0);
+  const year = isYear(period);
+  const out = new Array(year ? 12 : days).fill(0);
   for (const e of list) {
     if (e.kind !== "expense") continue;
     const d = new Date(e.occurred_at);
-    const i = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) / 86400000);
+    const i = year
+      ? Number(periodOf(e.occurred_at, prefs.cycleDay).slice(5)) - 1
+      : Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) / 86400000);
     out[i] += e.amount_cents;
   }
   return out;
 }
 
-/** 今天在周期里是第几天（下标）；不在这个周期为 -1。 */
+/** 今天在 `spendBars` 里的下标；不在这个周期为 -1。 */
 export function todayIndex(period: string): number {
+  if (isYear(period)) {
+    const m = currentPeriod();
+    return within(m, period) ? Number(m.slice(5)) - 1 : -1;
+  }
   const { start, days } = periodRange(period, prefs.cycleDay);
   const now = new Date();
   const i = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - start.getTime()) / 86400000);
   return i >= 0 && i < days ? i : -1;
+}
+
+/** 周期过了几天（含今天）、一共几天；过去的周期算整期。预算的时间进度用它。 */
+export function elapsedDays(period: string): { elapsed: number; days: number } {
+  const { start, end, days } = periodRange(period, prefs.cycleDay);
+  const now = Date.now();
+  if (now >= end.getTime()) return { elapsed: days, days };
+  return { elapsed: Math.max(0, Math.floor((now - start.getTime()) / 86400000) + 1), days };
+}
+
+/** 每个月周期的支出和笔数，跳转面板用。 */
+export function monthTotals(account?: string): Map<string, { spent: number; count: number }> {
+  const out = new Map<string, { spent: number; count: number }>();
+  for (const e of app.entries) {
+    if (app.hidden.includes(e.id) || (account && e.account !== account)) continue;
+    const k = periodOf(e.occurred_at, prefs.cycleDay);
+    const t = out.get(k) ?? { spent: 0, count: 0 };
+    out.set(k, { spent: t.spent + (e.kind === "expense" ? e.amount_cents : 0), count: t.count + 1 });
+  }
+  return out;
 }
 
 /** 按某个维度汇总支出，从大到小。 */
@@ -128,8 +190,33 @@ export function moveAccount(from: number, to: number) {
   if (from === 0 || to === 0) toast(`默认账户：${list[0].name}`);
 }
 
-export function setCard(name: string, card: Account["card"]) {
-  app.catalog.accounts.find((a) => a.name === name)!.card = card;
+/** 新建（`old` 为空）或修改账户；名称冲突返回错误文案。原型里账目按名称引用账户，改名要跟着改；正式版按 id 引用，不用。 */
+export function saveAccount(old: string | null, next: Account): string | null {
+  const list = app.catalog.accounts;
+  if (list.some((a) => a.name === next.name && a.name !== old)) return "已经有同名账户";
+  if (old === null) {
+    list.push(next);
+    toast(`已添加 ${next.name}`);
+    return null;
+  }
+  list[list.findIndex((a) => a.name === old)] = next;
+  if (next.name !== old) {
+    for (const e of app.entries) if (e.account === old) e.account = next.name;
+    app.balances[next.name] = app.balances[old];
+    delete app.balances[old];
+  }
+  return null;
+}
+
+/** 删除账户；还有账目在用就不删，返回错误文案。 */
+export function removeAccount(name: string): string | null {
+  const used = app.entries.filter((e) => e.account === name).length;
+  if (used) return `还有 ${used} 笔账目在用，不能删除`;
+  const list = app.catalog.accounts;
+  const i = list.findIndex((a) => a.name === name);
+  list.splice(i, 1);
+  toast(i === 0 && list.length ? `已删除，默认账户：${list[0].name}` : "已删除");
+  return null;
 }
 
 /** 复制文本。局域网 http 下没有 clipboard API，退回 execCommand。 */

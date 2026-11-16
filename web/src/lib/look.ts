@@ -1,3 +1,6 @@
+import { LOGOS } from "./logos";
+import type { Account } from "./types";
+
 // 展示用的分类 emoji：主题可选用；新加的分类没配就用一级的，再没有用 ✨。
 const EMOJI: Record<string, string> = {
   餐饮: "🍜", 三餐: "🍱", 咖啡饮品: "☕️", 零食水果: "🍓", 聚餐: "🍲",
@@ -32,22 +35,14 @@ export function slices(parts: { name: string; cents: number }[], index: (name: s
   return out;
 }
 
-/** 账户的标志：按名称认银行和支付平台，认不出用首字。以后换成真 logo。 */
-const BRANDS: [string, string, string][] = [
-  ["微信", "微", "#07c160"],
-  ["支付宝", "支", "#1677ff"],
-  ["招商银行", "招", "#d7000f"],
-  ["工商银行", "工", "#c7000b"],
-  ["建设银行", "建", "#0066b3"],
-  ["农业银行", "农", "#009c96"],
-  ["中国银行", "中", "#b81c22"],
-  ["交通银行", "交", "#1d2088"],
-];
-
-export function brand(name: string): { mark: string; bg: string } {
-  const b = BRANDS.find(([k]) => name.includes(k));
-  return b ? { mark: b[1], bg: b[2] } : { mark: name.slice(0, 1), bg: "#5e6e82" };
+/** 账户的标志：有机构用机构的图形，「其他」用账户名首字。 */
+export function brand(a: Pick<Account, "name" | "brand">): { bg: string; path?: string; mark: string } {
+  const b = LOGOS.find(([k]) => k === a.brand);
+  return b ? { bg: b[1], path: b[2], mark: "" } : { bg: "#5e6e82", mark: a.name.slice(0, 1) };
 }
+
+/** 新建账户时按名称猜机构，省一次点选。 */
+export const guessBrand = (name: string) => LOGOS.find(([k]) => name.includes(k))?.[0] ?? null;
 
 export const cardLabel = (card: { type: "debit" | "credit"; number: string }) =>
   `${card.type === "debit" ? "储蓄卡" : "信用卡"} ·· ${card.number.slice(-4)}`;

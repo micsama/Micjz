@@ -4,9 +4,11 @@
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
   import SwipeRow from "../../ui/SwipeRow.svelte";
-  import { app, back, breakdown, byDay, categoryIndex, currentPeriod, daily, open, openStats, periodEntries, prefs, remove, todayIndex, total } from "../../lib/store.svelte";
-  import { dayLabel, leaf, money, periodLabel, shiftPeriod, time } from "../../lib/format";
-  import { brand, cardLabel, color, emoji, slices } from "../../lib/look";
+  import { app, back, breakdown, budgetOf, byDay, categoryIndex, open, openStats, periodEntries, prefs, remove, spendBars, todayIndex, total } from "../../lib/store.svelte";
+  import { dayLabel, isYear, leaf, money, periodLabel, periodOf, time } from "../../lib/format";
+  import { cardLabel, color, emoji, slices } from "../../lib/look";
+  import AccountLogo from "../../ui/AccountLogo.svelte";
+  import PeriodHeader from "./PeriodHeader.svelte";
 
   // 传了账户就是推入的账户明细页：只看这个账户的账目，不显示预算。
   let { account }: { account?: string } = $props();
@@ -14,6 +16,7 @@
 
   let collapsed = $state(false);
   let dir = $state(1);
+  let page = $state<HTMLElement>();
 
   const list = $derived(periodEntries(app.period, account));
   const days = $derived(byDay(list));
@@ -22,27 +25,41 @@
   const idx = (name: string) => Math.max(0, app.catalog.expense.findIndex((c) => c.name === name));
   const parts = $derived(breakdown(list));
   const ring = $derived(slices(parts, idx));
-  const bars = $derived(daily(app.period, list));
+  const year = $derived(isYear(app.period));
+  const bars = $derived(spendBars(app.period, list));
   const peak = $derived(Math.max(1, ...bars));
   const today = $derived(todayIndex(app.period));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
-  const latest = $derived(app.period >= currentPeriod());
-  const budget = $derived(account ? null : prefs.budget);
+  const budget = $derived(account ? null : budgetOf(app.period));
   const left = $derived(budget === null ? 0 : budget - spent);
-  // 本期剩余天数（含今天），只对当前周期有意义。
-  const daysLeft = $derived(today < 0 ? 0 : bars.length - today);
+  // 剩余天数或月数（含今天、本月），只对当前周期有意义。
+  const unitsLeft = $derived(today < 0 ? 0 : bars.length - today);
+
+  // 按年看时不列每一笔，按月汇总；点一个月进到那个月。
+  const months = $derived.by(() => {
+    if (!year) return [];
+    const groups = new Map<string, typeof list>();
+    for (const e of list) {
+      const k = periodOf(e.occurred_at, prefs.cycleDay);
+      groups.set(k, [...(groups.get(k) ?? []), e]);
+    }
+    return [...groups].map(([key, es]) => ({ key, spent: total(es, "expense"), income: total(es, "income"), count: es.length }));
+  });
+  const monthBudget = $derived(account ? null : prefs.budget);
+  const monthScale = $derived(Math.max(1, monthBudget ?? 0, ...months.map((m) => m.spent)));
+
+  function drill(key: string) {
+    dir = 1;
+    app.period = key;
+    page?.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   const glow = $derived([0, 1, 2].map((i) => color(idx(parts[i]?.name ?? "其他") + (parts[i] ? 0 : i))));
-
-  function go(delta: number) {
-    dir = delta;
-    app.period = shiftPeriod(app.period, delta);
-  }
 
   const [yuan, cents] = $derived(money(spent).split("."));
 </script>
 
-<div class="page" onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
+<div class="page" bind:this={page} onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
   <header class="bar" class:collapsed class:pushed={account}>
     {#if account}<button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />财富</button>{/if}
     <span>{account ?? label.title}</span>
@@ -50,29 +67,23 @@
 
   {#if account}
     <div class="acct">
-      <span class="logo" style:background={brand(account).bg}>{brand(account).mark}</span>
+      <AccountLogo account={acct ?? { name: account, brand: null }} size={46} />
       <span><b>{account}</b><small class="num">{acct?.card ? cardLabel(acct.card) : "无卡号"}</small></span>
     </div>
   {/if}
-  <div class="large">
-    <h1>{label.title}<small>{label.sub}</small></h1>
-    <div class="switch">
-      <button onclick={() => go(-1)} aria-label="上个月"><Icon name="chevron-left" size={18} weight={2.6} /></button>
-      <button onclick={() => go(1)} disabled={latest} aria-label="下个月"><Icon name="chevron-right" size={18} weight={2.6} /></button>
-    </div>
-  </div>
+  <PeriodHeader {account} onshift={(d) => (dir = d)} />
 
   {#key app.period}
     <div in:fly={{ x: 40 * dir, duration: 420, easing: quintOut }}>
       <button class="hero" style:--g1={glow[0]} style:--g2={glow[1]} style:--g3={glow[2]} onclick={openStats}>
         <span class="glass"></span>
-        <span class="cap">{account ? "这个账户" : ""}{prefs.cycleDay === 1 ? "本月支出" : "本期支出"}<Icon name="chevron-right" size={13} weight={2.8} /></span>
+        <span class="cap">{account ? "这个账户" : ""}{year ? "全年支出" : prefs.cycleDay === 1 ? "本月支出" : "本期支出"}<Icon name="chevron-right" size={13} weight={2.8} /></span>
         <span class="big num">{yuan}<span>.{cents}</span></span>
         {#if budget !== null}
           <span class="budget">
             <span class="track"><span class="used" class:over={left < 0} style:width="{Math.min(100, (spent / budget) * 100)}%"></span></span>
             <span class="sub num">
-              {#if left >= 0}预算还剩 {money(left)}{#if daysLeft} · 每天可花 {money(Math.floor(left / daysLeft))}{/if}{:else}超出预算 {money(-left)}{/if}
+              {#if left >= 0}预算还剩 {money(left)}{#if unitsLeft} · {year ? "每月" : "每天"}可花 {money(Math.floor(left / unitsLeft))}{/if}{:else}超出预算 {money(-left)}{/if}
             </span>
           </span>
         {:else}
@@ -99,7 +110,27 @@
         </button>
       {/if}
 
-      {#each days as g (g.day)}
+      {#if year}
+        {#if months.length}<h3 class="day"><span>按月</span><span>点开看每一笔</span></h3>{/if}
+        <div class="group" class:hidden={!months.length}>
+          {#each months as m (m.key)}
+            <button class="row month" onclick={() => drill(m.key)}>
+              <span class="mo"><b class="num">{Number(m.key.slice(5))}</b>月</span>
+              <span class="main">
+                <span class="title num">{money(m.spent)}<small>{m.count} 笔{#if m.income} · 收入 {money(m.income)}{/if}</small></span>
+                <span class="meter">
+                  <i class:over={monthBudget !== null && m.spent > monthBudget} style:width="{(m.spent / monthScale) * 100}%"></i>
+                  {#if monthBudget !== null}<b style:left="{(monthBudget / monthScale) * 100}%"></b>{/if}
+                </span>
+              </span>
+              <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+            </button>
+          {/each}
+        </div>
+        {#if monthBudget !== null && months.length}<p class="note">竖线是每月预算 {money(monthBudget)}</p>{/if}
+      {/if}
+
+      {#each year ? [] : days as g (g.day)}
         <h3 class="day"><span>{dayLabel(g.at)}</span>{#if g.spent}<span class="num">支出 {money(g.spent)}</span>{/if}</h3>
         <div class="group">
           {#each g.entries as e (e.id)}
@@ -119,11 +150,13 @@
           {/each}
         </div>
       {:else}
+        {#if !months.length}
         <div class="empty">
           <div class="em">🧾</div>
-          <p>这个月还没有账目</p>
+          <p>{year ? "这一年" : "这个月"}还没有账目</p>
           <small>支付完成后轻点手机背面，截图就会记下来</small>
         </div>
+        {/if}
       {/each}
     </div>
   {/key}
@@ -191,16 +224,6 @@
     gap: 12px;
     margin: 4px 20px 12px;
   }
-  .acct .logo {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    font-size: 20px;
-    font-weight: 700;
-  }
   .acct > span:last-child {
     display: grid;
   }
@@ -210,46 +233,6 @@
   .acct small {
     font-size: 13px;
     color: var(--label2);
-  }
-  .large {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 0 16px 10px 20px;
-    margin-top: -6px;
-  }
-  h1 {
-    margin: 0;
-    font-size: 34px;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-  }
-  h1 small {
-    margin-left: 8px;
-    font-size: 17px;
-    font-weight: 500;
-    color: var(--label2);
-  }
-  .switch {
-    display: flex;
-    gap: 8px;
-    padding-bottom: 4px;
-  }
-  .switch button {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: 0;
-    display: grid;
-    place-items: center;
-    background: var(--fill);
-    color: var(--tint);
-  }
-  .switch button:disabled {
-    color: var(--label3);
-  }
-  .switch button:active {
-    transform: scale(0.9);
   }
 
   .hero {
@@ -453,6 +436,69 @@
   .row:active {
     background: color-mix(in srgb, var(--card), var(--label) 8%);
     transition: none;
+  }
+  .group.hidden {
+    display: none;
+  }
+  .month + .month {
+    box-shadow: inset 0 0.5px 0 var(--sep);
+  }
+  .mo {
+    flex: none;
+    width: 40px;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--label2);
+  }
+  .mo b {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--label);
+  }
+  .title small {
+    margin-left: 8px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--label2);
+  }
+  .meter {
+    position: relative;
+    height: 6px;
+    margin: 4px 0 2px;
+    border-radius: 3px;
+    background: var(--fill);
+  }
+  .meter i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--tint);
+    transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .meter i.over {
+    background: var(--red);
+  }
+  .meter b {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--label3);
+  }
+  .chev {
+    flex: none;
+    display: flex;
+    color: var(--label3);
+  }
+  .note {
+    margin: 8px 32px 0;
+    font-size: 12px;
+    color: var(--label3);
   }
   .icon {
     flex: none;

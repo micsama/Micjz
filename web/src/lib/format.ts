@@ -60,6 +60,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 /**
  * 记账周期：每月 `day` 号开始，到下月 `day` 号前结束。
  * 周期用开始的那个月标识，如 "2026-11"；`day` 为 1 时就是自然月。
+ * 年用 "2026" 标识，是名为 2026-01 到 2026-12 的那 12 个周期。
  */
 export function periodOf(iso: string, day: number): string {
   const d = new Date(iso);
@@ -67,23 +68,31 @@ export function periodOf(iso: string, day: number): string {
   return `${m.getFullYear()}-${pad(m.getMonth() + 1)}`;
 }
 
+export const isYear = (key: string) => key.length === 4;
+
+/** 月周期 `month` 是否落在 `key` 里（`key` 可以是月或年）。 */
+export const within = (month: string, key: string) => (isYear(key) ? month.startsWith(`${key}-`) : month === key);
+
 /** 周期的起止，`end` 不含。 */
 export function periodRange(key: string, day: number): { start: Date; end: Date; days: number } {
   const [y, m] = key.split("-").map(Number);
-  const start = new Date(y, m - 1, day);
-  const end = new Date(y, m, day);
+  const start = isYear(key) ? new Date(y, 0, day) : new Date(y, m - 1, day);
+  const end = isYear(key) ? new Date(y + 1, 0, day) : new Date(y, m, day);
   return { start, end, days: Math.round((end.getTime() - start.getTime()) / 86400000) };
 }
 
-export function periodLabel(key: string, day: number): { title: string; sub: string } {
+/** `title` 是大标题；`range` 只在周期不从 1 号开始时给出实际起止。 */
+export function periodLabel(key: string, day: number): { title: string; year: string; range: string } {
   const [y, m] = key.split("-").map(Number);
-  if (day === 1) return { title: `${m}月`, sub: `${y}年` };
+  const title = isYear(key) ? `${y}年` : `${m}月`;
+  if (day === 1) return { title, year: `${y}年`, range: "" };
   const { start, end } = periodRange(key, day);
   const last = new Date(end.getTime() - 86400000);
-  return { title: `${m}月`, sub: `${start.getMonth() + 1}.${start.getDate()} – ${last.getMonth() + 1}.${last.getDate()}` };
+  return { title, year: `${y}年`, range: `${start.getMonth() + 1}.${start.getDate()} – ${last.getMonth() + 1}.${last.getDate()}` };
 }
 
 export function shiftPeriod(key: string, delta: number): string {
+  if (isYear(key)) return String(Number(key) + delta);
   const [y, m] = key.split("-").map(Number);
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;

@@ -8,6 +8,8 @@ export interface Category {
 
 export interface Account {
   name: string;
+  /** 所属机构，取 `LOGOS` 里的名称；决定标志，也会告诉模型。空为「其他」。 */
+  brand: string | null;
   card: { type: "debit" | "credit"; number: string } | null;
 }
 

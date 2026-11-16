@@ -3,9 +3,10 @@
   import { backOut } from "svelte/easing";
   import SwipeRow from "../../ui/SwipeRow.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import { app, back, breakdown, byDay, categoryIndex, currentPeriod, open, openStats, periodEntries, prefs, remove, total } from "../../lib/store.svelte";
-  import { leaf, money, periodLabel, shiftPeriod, time } from "../../lib/format";
-  import { brand, color, emoji, slices } from "../../lib/look";
+  import { app, back, breakdown, byDay, categoryIndex, isLatest, open, openStats, periodEntries, prefs, remove, total } from "../../lib/store.svelte";
+  import { isYear, leaf, money, periodLabel, shiftPeriod, time } from "../../lib/format";
+  import { color, emoji, slices } from "../../lib/look";
+  import AccountLogo from "../../ui/AccountLogo.svelte";
 
   // 传了账户就是推入的账户明细页：只看这个账户的账目，不显示预算。
   let { account }: { account?: string } = $props();
@@ -17,7 +18,7 @@
   const last = $derived(total(periodEntries(shiftPeriod(app.period, -1), account), "expense"));
   const parts = $derived(breakdown(list));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
-  const latest = $derived(app.period >= currentPeriod());
+  const latest = $derived(isLatest(app.period));
   const budget = $derived(account ? null : prefs.budget);
   const left = $derived(budget === null ? 0 : budget - spent);
   const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
@@ -39,8 +40,8 @@
   <header class="top">
     {#if account}<button class="back" onclick={back} aria-label="返回">‹</button>{/if}
     <div class="hello">
-      <small>{label.sub}</small>
-      <h1>{#if account}<span class="logo" style:background={brand(account).bg}>{brand(account).mark}</span>{account}{:else}{label.title}的小账本{/if}</h1>
+      <small>{label.range || label.year}</small>
+      <h1>{#if account}<span class="logo"><AccountLogo account={app.catalog.accounts.find((a) => a.name === account) ?? { name: account, brand: null }} size={30} /></span>{account}{:else}{label.title}的小账本{/if}</h1>
     </div>
     <div class="pill">
       <button onclick={() => go(-1)} aria-label="上个月">‹</button>
@@ -52,7 +53,7 @@
     <div in:fly={{ x: 50 * dir, duration: 520, easing: backOut }}>
       <button class="piggy" onclick={openStats}>
         <span class="pig" in:scale={{ start: 0.4, duration: 600, easing: backOut }}>{mood}</span>
-        <span class="cap">{prefs.cycleDay === 1 ? "这个月花了" : "这一期花了"} ›</span>
+        <span class="cap">{isYear(app.period) ? "这一年花了" : prefs.cycleDay === 1 ? "这个月花了" : "这一期花了"} ›</span>
         <span class="big num">{money(spent)}</span>
         {#if budget !== null}
           <span class="jar"><span class="fill-b" class:over={left < 0} style:width="{Math.min(100, (spent / budget) * 100)}%"></span></span>
@@ -145,15 +146,9 @@
     min-width: 0;
   }
   .logo {
-    display: inline-grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
+    display: inline-flex;
     margin-right: 8px;
-    border-radius: 50%;
-    color: #fff;
-    font-size: 15px;
-    vertical-align: 3px;
+    vertical-align: -6px;
   }
   .top {
     display: flex;

@@ -22,10 +22,10 @@ export const catalog: Catalog = {
     { name: "其他", subs: [] },
   ],
   accounts: [
-    { name: "微信", card: null },
-    { name: "招商银行储蓄卡", card: { type: "debit", number: "6214888800001234" } },
-    { name: "招商银行信用卡", card: { type: "credit", number: "6225888800005678" } },
-    { name: "支付宝", card: null },
+    { name: "微信", brand: "微信", card: null },
+    { name: "工资卡", brand: "招商银行", card: { type: "debit", number: "6214888800001234" } },
+    { name: "招行信用卡", brand: "招商银行", card: { type: "credit", number: "6225888800005678" } },
+    { name: "支付宝", brand: "支付宝", card: null },
   ],
   tags: ["恋爱", "出差", "家庭"],
 };
@@ -70,11 +70,14 @@ function entry(r: () => number, at: Date, f: Omit<Fields, "occurred_at">, origin
   return { ...fields, id, created_at: iso(at), origin: { ...fields, ...origin }, image: screenshot({ ...fields, ...origin }) };
 }
 
+/** 各账户此刻的余额，分；信用卡是欠款，为负。 */
+export const balances: Record<string, number> = { 微信: 328640, 工资卡: 4821055, 招行信用卡: -412780, 支付宝: 1263000 };
+
 export function entries(now = new Date()): Entry[] {
   const r = rng(42);
   const out: Entry[] = [];
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
-  for (let day = 0; day < 75; day++) {
+  for (let day = 0; day < 400; day++) {
     const date = new Date(now);
     date.setDate(now.getDate() - day);
     const n = Math.floor(r() * 4);
@@ -84,7 +87,7 @@ export function entries(now = new Date()): Entry[] {
       at.setHours(8 + Math.floor(r() * 14), Math.floor(r() * 60));
       if (day === 0 && at > now) at.setTime(now.getTime() - (i + 1) * 47 * 60000);
       const amount = Math.round((min + r() * (max - min)) / 10) * 10;
-      const account = pick(["微信", "微信", "招商银行储蓄卡", "招商银行信用卡", "支付宝"]);
+      const account = pick(["微信", "微信", "工资卡", "招行信用卡", "支付宝"]);
       const tags = r() < 0.12 ? ["恋爱"] : [];
       const f = { kind: "expense" as Kind, amount_cents: amount, category, subcategory: sub, account, merchant, note: note ?? null, tags };
       // 少数几笔模拟用户改过：模型分错类、没认出账户。
@@ -96,7 +99,7 @@ export function entries(now = new Date()): Entry[] {
     if (date.getDate() === 10) {
       const at = new Date(date);
       at.setHours(10, 2);
-      const f = { kind: "income" as Kind, amount_cents: 2350000, category: "工资", subcategory: null, account: "招商银行储蓄卡", merchant: "某某科技有限公司", note: null, tags: [] };
+      const f = { kind: "income" as Kind, amount_cents: 2350000, category: "工资", subcategory: null, account: "工资卡", merchant: "某某科技有限公司", note: null, tags: [] };
       out.push(entry(r, at, f, {}));
     }
   }

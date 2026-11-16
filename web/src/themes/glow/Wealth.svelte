@@ -2,83 +2,96 @@
   import Icon from "../../ui/Icon.svelte";
   import Sheet from "../../ui/Sheet.svelte";
   import SwipeRow, { type SwipeAction } from "../../ui/SwipeRow.svelte";
-  import CardEditor from "../../ui/CardEditor.svelte";
+  import AccountEditor from "../../ui/AccountEditor.svelte";
+  import AccountLogo from "../../ui/AccountLogo.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { Reorder } from "../../ui/reorder.svelte";
-  import { app, copy, moveAccount, openAccount, periodEntries, prefs, total } from "../../lib/store.svelte";
-  import { money, periodLabel } from "../../lib/format";
+  import { fade } from "svelte/transition";
+  import { app, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
+  import { money } from "../../lib/format";
   import { brand, cardLabel } from "../../lib/look";
   import type { Account } from "../../lib/types";
 
   let collapsed = $state(false);
-  let editing = $state<Account | null>(null);
+  /** 正在编辑的账户；`"new"` 是新建。 */
+  let editing = $state<Account | "new" | null>(null);
   const reorder = new Reorder(moveAccount);
 
-  const list = $derived(periodEntries(app.period));
-  const spent = $derived(total(list, "expense"));
-  const income = $derived(total(list, "income"));
-  const label = $derived(periodLabel(app.period, prefs.cycleDay));
-  const rows = $derived(
-    app.catalog.accounts.map((a) => {
-      const mine = list.filter((e) => e.account === a.name);
-      return { a, spent: total(mine, "expense"), income: total(mine, "income"), count: mine.length };
-    }),
-  );
-  const flow = $derived(rows.filter((r) => r.spent));
+  // 财富页只看此刻：净资产和各账户余额，不随周期变；某段时间的收支点进账户看。
+  const bal = (a: Account) => app.balances[a.name] ?? 0;
+  const assets = $derived(app.catalog.accounts.filter((a) => bal(a) > 0));
+  const plus = $derived(assets.reduce((s, a) => s + bal(a), 0));
+  const minus = $derived(app.catalog.accounts.reduce((s, a) => s + Math.min(0, bal(a)), 0));
+  /** 点资产条上的一段，大数字换成那个账户的余额。 */
+  let focus = $state<Account | null>(null);
+  const shown = $derived(focus ? bal(focus) : plus + minus);
+  const mask = (text: string) => (app.hideBalance ? "••••••" : text);
+
 
   function actions(a: Account): SwipeAction[] {
     const out: SwipeAction[] = [];
     if (a.card) out.push({ icon: "copy", label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
-    out.push({ icon: "pencil", label: a.card ? "修改卡号" : "添加卡号", run: () => { holdKeyboard("numeric"); editing = a; } });
+    out.push({ icon: "pencil", label: "编辑账户", run: () => (editing = a) });
     return out;
   }
 </script>
 
 <div class="page" onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
   <header class="bar" class:collapsed><span>财富</span></header>
-  <h1>财富</h1>
+  <h1 class="title">财富</h1>
 
-  <section class="hero">
-    <span class="cap">{label.title} · 经过各账户</span>
-    <div class="two">
-      <span><small>支出</small><b class="num">{money(spent)}</b></span>
-      <span><small>收入</small><b class="num">{money(income)}</b></span>
+  <section class="worth" onclick={() => (focus = null)} role="presentation">
+    <span class="glass"></span>
+    <div class="cap">
+      <span>{focus ? focus.name : "净资产"}<em>示例数据</em></span>
+      <button class="eye" onclick={(e) => { e.stopPropagation(); toggleBalance(); }} aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}>
+        <Icon name={app.hideBalance ? "eye-slash" : "eye"} size={18} weight={2} />
+      </button>
     </div>
-    {#if flow.length}
-      <div class="split">
-        {#each flow as r (r.a.name)}<i style:flex={r.spent} style:background={brand(r.a.name).bg}></i>{/each}
+    {#key `${focus?.name}${app.hideBalance}`}
+      <b class="big num" class:neg={shown < 0} in:fade={{ duration: 220 }}>{mask(money(shown, shown < 0))}</b>
+    {/key}
+    <span class="when">{focus ? `占资产 ${plus ? Math.round((Math.max(0, bal(focus)) / plus) * 100) : 0}% · 点空白处回到净资产` : "截至此刻"}</span>
+    {#if assets.length}
+      <div class="stack">
+        {#each assets as a (a.name)}
+          <button class:dim={focus && focus.name !== a.name} style:flex={bal(a)} style:background={brand(a).bg}
+            onclick={(e) => { e.stopPropagation(); focus = focus?.name === a.name ? null : a; }} aria-label={a.name}></button>
+        {/each}
       </div>
     {/if}
+    <div class="two">
+      <span><small>资产</small><b class="num">{mask(money(plus))}</b></span>
+      <span><small>负债</small><b class="num">{mask(money(-minus))}</b></span>
+    </div>
   </section>
 
-  <h3 class="cap2">账户</h3>
+
+  <h3 class="cap2">账户<button class="add" onclick={() => { holdKeyboard(); editing = "new"; }}><Icon name="plus" size={15} weight={2.4} />添加</button></h3>
   <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
-    {#each rows as r, i (r.a.name)}
-      {@const b = brand(r.a.name)}
+    {#each app.catalog.accounts as a, i (a.name)}
       <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
-      <SwipeRow actions={actions(r.a)}>
-      <button class="row" onclick={() => openAccount(r.a.name)}>
-        <span class="logo" style:background={b.bg}>{b.mark}</span>
+      <SwipeRow actions={actions(a)}>
+      <button class="row" onclick={() => openAccount(a.name)}>
+        <AccountLogo account={a} />
         <span class="main">
-          <span class="name">{r.a.name}{#if i === 0}<em>默认</em>{/if}</span>
-          <span class="sub num">{r.a.card ? cardLabel(r.a.card) : "无卡号"}</span>
+          <span class="name">{a.name}{#if i === 0}<em>默认</em>{/if}</span>
+          <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
         </span>
-        <span class="right">
-          <span class="num">{r.spent ? money(r.spent) : "—"}</span>
-          <small class="num">{r.count} 笔</small>
-        </span>
+        <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
         <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
       </button>
       </SwipeRow>
       </div>
     {/each}
   </div>
-  <p class="foot">点账户看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制或修改卡号。余额和对账以后加在这里。</p>
+  <p class="foot">右边是此刻的余额。点账户按月或按年看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制卡号或编辑账户。</p>
+  <p class="foot">余额现在是示例数据：要准确得先有转账记录和对账，排在统计之后做。</p>
   <div class="tail"></div>
 </div>
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
-  {#if editing}<CardEditor account={editing} onclose={() => (editing = null)} />{/if}
+  {#if editing}<AccountEditor account={editing === "new" ? null : editing} onclose={() => (editing = null)} />{/if}
 </Sheet>
 
 <style>
@@ -113,17 +126,19 @@
   .bar.collapsed span {
     opacity: 1;
   }
-  h1 {
+  .title {
     margin: -6px 20px 10px;
     font-size: 34px;
     font-weight: 700;
   }
-  .hero {
+  .worth {
+    position: relative;
     display: grid;
-    gap: 12px;
+    gap: 6px;
     margin: 0 16px;
-    padding: 18px 20px;
+    padding: 16px 20px 18px;
     border-radius: 24px;
+    overflow: hidden;
     color: #fff;
     background:
       radial-gradient(100% 120% at 0% 0%, #2f7cf6 0%, transparent 60%),
@@ -131,10 +146,85 @@
       #13233f;
     box-shadow: 0 14px 30px -14px rgba(19, 90, 200, 0.6);
   }
-  .cap {
+  .glass {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(170deg, rgba(255, 255, 255, 0.16), transparent 45%);
+    pointer-events: none;
+  }
+  .worth .cap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     font-size: 13px;
     font-weight: 600;
+  }
+  .worth .cap span {
+    opacity: 0.9;
+  }
+  .worth .cap em {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-style: normal;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .eye {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    margin: -6px -8px -6px 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: #fff;
     opacity: 0.85;
+  }
+  .eye:active {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .big {
+    grid-area: auto;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .big.neg {
+    color: #ffb4ab;
+  }
+  .when {
+    font-size: 12px;
+    opacity: 0.7;
+  }
+  .stack {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+    margin: 8px 0 6px;
+  }
+  .stack button {
+    position: relative;
+    min-width: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  /* 条很细，点击区域上下放大。 */
+  .stack button::before {
+    content: "";
+    position: absolute;
+    inset: -12px 0;
+  }
+  .stack button.dim {
+    opacity: 0.3;
+  }
+  .stack button:not(.dim):active {
+    transform: scaleY(1.4);
   }
   .two {
     display: grid;
@@ -148,24 +238,30 @@
     opacity: 0.75;
   }
   .two b {
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 700;
   }
-  .split {
-    display: flex;
-    gap: 2px;
-    height: 8px;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .split i {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-  }
   .cap2 {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
     margin: 24px 32px 7px;
     font-size: 13px;
     font-weight: 500;
     color: var(--label2);
+  }
+  .add {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin: 0 -4px -3px 0;
+    padding: 2px 4px;
+    border: 0;
+    background: none;
+    color: var(--tint);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
   }
   .group {
     margin: 0 16px;
@@ -218,18 +314,6 @@
     height: 0.5px;
     background: var(--sep);
   }
-  .logo {
-    flex: none;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    font-size: 17px;
-    font-weight: 700;
-    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
-  }
   .main {
     flex: 1;
     min-width: 0;
@@ -263,10 +347,8 @@
     font-size: 15px;
     font-weight: 600;
   }
-  .right small {
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--label3);
+  .right.owe {
+    color: var(--red);
   }
   .chev {
     display: flex;
@@ -277,6 +359,9 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--label2);
+  }
+  .foot + .foot {
+    margin-top: 4px;
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 100px);
