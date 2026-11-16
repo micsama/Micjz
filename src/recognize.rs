@@ -1,7 +1,8 @@
 //! 截图识别：发给 DeepSeek 视觉模型，输出逐字段校验后组装成草稿。
 //!
-//! 识别永不失败：调用出错、不是支付页、字段不合规，都落到空字段由用户补，
-//! 原因写进识别记录和日志，用户在主菜单看到的是「请补充」的空字段。
+//! 识别永不失败：调用出错、不是支付页、字段不合规，都落到空字段由用户补。
+//! 被拒或出错的原因写进识别记录，之后每一屏顶部都提示一行（见 [`notice`]）；
+//! 被拒时模型填了的字段照留，确认与否由用户决定。
 
 use std::{
     sync::LazyLock,
@@ -48,6 +49,21 @@ impl Outcome {
             Outcome::Rejected => "rejected",
             Outcome::Error => "error",
         }
+    }
+
+    pub fn parse(s: &str) -> Option<Outcome> {
+        [Outcome::Ok, Outcome::Rejected, Outcome::Error]
+            .into_iter()
+            .find(|o| o.as_str() == s)
+    }
+}
+
+/// 给用户看的提醒：识别没成功时说明原因。出错的原因是技术细节，只进记录。
+pub fn notice(outcome: Outcome, reason: Option<&str>) -> Option<String> {
+    match outcome {
+        Outcome::Ok => None,
+        Outcome::Rejected => Some(format!("不像支付页：{}", reason.unwrap_or("未说明"))),
+        Outcome::Error => Some("识别失败，请手动填写".to_owned()),
     }
 }
 

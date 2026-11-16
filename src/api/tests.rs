@@ -162,6 +162,28 @@ async fn recognize_then_confirm_saves_once() {
     assert!(std::path::Path::new(&path).exists(), "图片已留存：{path}");
 }
 
+/// 模型说不是支付页：每一屏顶部提醒原因，字段照留，仍可确认。
+#[tokio::test]
+async fn rejected_recognition_reminds_but_still_confirms() {
+    let s = server().await;
+    let (_, menu) = s.recognize("image", PNG).await;
+    rusqlite::Connection::open(&s.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE recognitions SET outcome = 'rejected', reason = '这是聊天记录'",
+            [],
+        )
+        .unwrap();
+    let warning = "⚠ 不像支付页：这是聊天记录";
+    let (_, accounts) = s.step(&menu, menu["options"][3].as_str().unwrap()).await;
+    assert!(accounts["summary"].as_str().unwrap().starts_with(warning));
+    let (_, menu) = s.step(&accounts, "💳 微信").await;
+    assert_eq!(menu["field"], "action");
+    assert_eq!(menu["summary"], warning);
+    let (_, done) = s.step(&menu, "✅ 确认记账").await;
+    assert_done(&done, "已记账");
+}
+
 #[tokio::test]
 async fn edit_category_and_tags_before_confirm() {
     let s = server().await;

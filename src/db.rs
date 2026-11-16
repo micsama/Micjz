@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use crate::{
     catalog::{self, Catalog},
     flow::{self, Draft},
-    recognize::Recognized,
+    recognize::{Outcome, Recognized},
 };
 
 pub const SCHEMA: &str = "
@@ -181,13 +181,28 @@ impl Db {
         catalog::load(&self.conn())
     }
 
-    /// 草稿 ID 是否由本服务识别发出。
-    pub fn has_recognition(&self, draft_id: &str) -> rusqlite::Result<bool> {
-        self.conn().query_row(
-            "SELECT EXISTS (SELECT 1 FROM recognitions WHERE draft_id = ?1)",
-            [draft_id],
-            |r| r.get(0),
-        )
+    /// 草稿对应的识别结果与原因；不是本服务识别发出的草稿为 `None`。
+    pub fn recognition(
+        &self,
+        draft_id: &str,
+    ) -> rusqlite::Result<Option<(Outcome, Option<String>)>> {
+        self.conn()
+            .query_row(
+                "SELECT outcome, reason FROM recognitions WHERE draft_id = ?1",
+                [draft_id],
+                |r| {
+                    let outcome: String = r.get(0)?;
+                    let outcome = Outcome::parse(&outcome).ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            format!("未知识别结果：{outcome}").into(),
+                        )
+                    })?;
+                    Ok((outcome, r.get(1)?))
+                },
+            )
+            .optional()
     }
 
     /// 确认截图草稿：账目新生成 id，`recognition_id` 是草稿 ID；账目和标签同一事务。

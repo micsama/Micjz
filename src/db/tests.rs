@@ -41,8 +41,8 @@ fn confirm_links_recognition_and_saves_once() {
     };
     db.record_recognition(&recognized(d.clone()), &image, 5)
         .unwrap();
-    assert!(db.has_recognition(&d.id).unwrap());
-    assert!(!db.has_recognition("nope").unwrap());
+    assert_eq!(db.recognition(&d.id).unwrap(), Some((Outcome::Ok, None)));
+    assert_eq!(db.recognition("nope").unwrap(), None);
 
     assert!(db.save(&d, 2200).unwrap());
     assert!(!db.save(&d, 2200).unwrap(), "重复确认不重复入账");

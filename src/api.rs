@@ -198,7 +198,16 @@ async fn recognize_handler(
         total_ms = started.elapsed().as_millis() as u64,
         "识别"
     );
-    Ok(Json(flow::menu(&r.draft, now)))
+    let notice = recognize::notice(r.outcome, r.reason.as_deref());
+    Ok(Json(remind(flow::menu(&r.draft, now), notice)))
+}
+
+/// 识别没成功时，每一屏顶部都提醒一次；字段照留，确认由用户决定。
+fn remind(reply: Reply, notice: Option<String>) -> Reply {
+    match notice {
+        Some(n) => reply.warn(&n),
+        None => reply,
+    }
 }
 
 /// 已存在（同一张图）就跳过；PNG 无损重压，更小才用。
@@ -265,20 +274,22 @@ async fn step_handler(
     let cat = load_catalog(&state)?;
     let before = Draft::decode(&req.draft, &cat).map_err(bad_request)?;
     trace.lock().expect("trace 锁未中毒").draft_id = Some(before.id.clone());
-    let known = state.db.has_recognition(&before.id).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("读取识别记录失败：{e}"),
-        )
-    })?;
-    if !known {
-        return Err(bad_request(format!("草稿不存在：{}", before.id)));
-    }
+    let (outcome, reason) = state
+        .db
+        .recognition(&before.id)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("读取识别记录失败：{e}"),
+            )
+        })?
+        .ok_or_else(|| bad_request(format!("草稿不存在：{}", before.id)))?;
     tracing::info!(id = %before.id, field = %req.field, "步骤");
     match flow::step(before, &req.field, &req.value, flow::now(), &cat).map_err(bad_request)? {
         Outcome::Reply(reply) => {
             tracing::info!(next = ?reply.step, field = %reply.field, "下一步");
-            Ok(Json(reply))
+            let notice = recognize::notice(outcome, reason.as_deref());
+            Ok(Json(remind(reply, notice)))
         }
         Outcome::Confirm {
             draft,

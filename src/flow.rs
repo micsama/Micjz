@@ -187,7 +187,7 @@ impl Reply {
     }
 
     /// 在提示语顶部加一行警告。
-    fn warn(mut self, line: &str) -> Reply {
+    pub fn warn(mut self, line: &str) -> Reply {
         self.summary = if self.summary.is_empty() {
             format!("⚠ {line}")
         } else {
