@@ -45,4 +45,39 @@ screen -S micjz
 - `./build.sh [debug] [build|run|start] [config.toml]`：`build` 只构建并检查库；`run` 构建后启动；`start` 不构建直接启动。每次启动前都备份成 `data/micjz.db.v<版本>-<时间>.bak`（不自动清理），版本落后再转换。
 - 首次部署：`config.example.toml` 复制为 `config.toml`；启动前 `export DEEPSEEK_API_KEY=...`。需要 Rust 工具链和 Python ≥ 3.11。
 
+## 初始化 / 重建库
+
+首次部署或调试期删库重建时，按这个顺序（以服务器上为例）：
+
+```sh
+git pull && ./build.sh                  # 构建；旧服务照跑，库检查报版本落后可忽略
+screen -r micjz                         # Ctrl-C 停掉旧服务
+rm -f data/micjz.db data/micjz.db-wal data/micjz.db-shm   # 删库：账目、分类、账户、标签全清空
+
+alias micjz=./target/release/micjz     # 下面的命令都在项目目录下执行
+micjz category list                     # 第一次执行就按当前结构建出新库，带默认数据
+```
+
+新库自带 `src/seed.sql` 里的默认分类、账户（「微信」「银行卡」）和标签（「恋爱」），在默认数据上改成自己的：
+
+```sh
+# 账户：银行卡用全称，带卡类型和完整卡号
+micjz account add  招商银行储蓄卡 储蓄卡 "6214 8888 0000 1234"
+micjz account add  招商银行信用卡 信用卡 "6225 8888 0000 5678"
+micjz account rm   银行卡                   # 删掉占位账户（没有账目才能删）
+micjz account move 招商银行储蓄卡 1           # 第 1 位是识别不出账户时的默认账户
+micjz account list                         # 核对顺序和卡号
+
+# 分类、标签：增删改、调顺序
+micjz category add  支出 宠物 pet
+micjz category move 支出 餐饮/咖啡饮品 1
+micjz category list
+micjz tag add 出差
+```
+
+最后启动服务：`./build.sh start`，Ctrl-A D 挂到后台。服务运行期间也能随时用命令行改，立即生效，不用重启。
+
+- 删库前手机上没走完的流程，提交时会提示「草稿不存在」，重新截图即可；快捷指令不用改。
+- 正式使用后不再删库：改表结构走转换脚本，见下。
+
 数据库版本存在 `PRAGMA user_version`，程序版本在 `src/schema_version`，不一致就拒绝启动。改表结构时版本加一并写转换脚本 `deploy/db/<N>-*.sql`（v(N-1) → vN），`deploy/db/convert.py` 在一个事务里执行，出错整体回滚。调试期也可以直接删库（连同 `-wal`、`-shm`），启动时用当前结构重建；正式使用后每次改表结构都必须带转换脚本。
