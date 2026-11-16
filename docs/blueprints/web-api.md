@@ -1,0 +1,345 @@
+# 蓝图：Web 接口（v2）
+
+状态：草稿，待批准。前后端分工：**后端**改 `src/`、`deploy/`、`build.sh`，**前端**改 `web/`。双方只按本文的契约对接；契约不够用或要改，先改本文，再改代码。
+
+背景、取舍和没选的方案见 [网页头脑风暴](../brainstorm/web.md)「账目按需取」「接口草稿」；表结构见 [账目蓝图](entries.md)、[设置表](settings.md)。前端原型的数据形状在 `web/src/lib/types.ts`，本文的 JSON 与它一致。
+
+## 1. 范围
+
+本蓝图包括：登录、网页托管、读目录 / 账目 / 余额 / 设置 / 识别记录、记一笔、改、删、平账、账户管理、设置修改、CSV 导出。
+
+不在本蓝图（之后单独写）：
+
+- **分类、标签的网页管理**：原型还没做，补完原型再定接口。在那之前仍用命令行。
+- **网页上「更新到最新版本」**：涉及进程自己重启，单独设计。这一版设置页只显示版本号。
+- **服务器推送**：不做，见 §3.4。
+- **疑似重复、退款、报销**：见 roadmap「以后再看」。
+
+快捷指令的 `/recognize`、`/step` 不变。
+
+## 2. 公共约定
+
+### 2.1 路径与托管
+
+- 接口一律在 `/api/` 下；网页静态文件在 `/` 下。线上由 Caddy 按 `/micjz` 前缀剥掉后转发，服务器看到的路径不带前缀。
+- 前端所有请求用相对路径（`api/entries`，不带开头的 `/`），Vite `base: "./"` 已设。
+- **静态文件**：后端用 `rust-embed` 把 `web/dist` 嵌进二进制（CLAUDE.md 已定的依赖）。
+  - `GET /` 返回 `index.html`，`Cache-Control: no-cache`。
+  - `GET /assets/*` 是带哈希的文件，`Cache-Control: public, max-age=31536000, immutable`。
+  - `index.html` 之外的根目录文件（`icon.svg`、`manifest.webmanifest` 等）原样返回，`no-cache`。
+  - 不存在的路径 404。网页没有前端路由，不需要回退到 `index.html`。
+  - 静态文件不需要鉴权。
+- `build.sh` 在 `cargo build` 前先在 `web/` 下 `bun install --frozen-lockfile && bun run build`。服务器上要装 Bun。
+- 本地开发：前端用 Vite dev server，把 `/api` 代理到 `127.0.0.1:8730`（前端负责配置）。
+
+### 2.2 鉴权
+
+- 同一个 token，两种带法，**所有受保护的路由都接受这两种**：
+  - `Authorization: Bearer <token>`：快捷指令和 curl 调试用；
+  - Cookie `micjz=<token>`：网页用。
+- 不受保护的只有静态文件和 `POST /api/login`。
+- 比较 token 用常数时间比较。
+- 未通过：`/api/*` 返回 401 + §2.4 的错误 JSON；`/recognize`、`/step` 保持现状（`done` 响应）。
+
+### 2.3 数据格式
+
+- 请求、响应都是 JSON（`Content-Type: application/json`），导出和图片除外。请求体有未知字段 → 400（`deny_unknown_fields`）。
+- **金额**：整数分。支出、收入、转账 > 0；平账 ≠ 0、带符号。绝对值上限 `99_999_999_999`（11 位，前端键盘的上限，也在 JS 安全整数内）。
+- **时间**：
+  - 响应里一律是 UTC、精确到秒：`"2026-11-16T05:42:00Z"`（就是库里存的字符串，由 `flow::stamp` 产出）。
+  - 请求里接受任意 RFC 3339（带 `Z` 或偏移，可带毫秒），服务器换成 UTC、截掉毫秒后存。前端直接发 `Date.toISOString()`。
+- **文本**（商家、备注）：去掉首尾空白，空串当作 `null`。长度上限 200 字符，超了 400。
+- **ID**：账目是 UUIDv7 字符串（服务器生成）；分类、账户、标签是整数。
+- **`null` 和「不出现」**：只有 PATCH 区分两者（§5.3），其他请求里可空字段必须写出来。
+
+### 2.4 错误
+
+所有非 2xx 的 `/api/*` 响应：
+
+```json
+{ "error": "还有 3 笔账目在用，不能删除" }
+```
+
+`error` 是给人看的中文，前端直接显示，不解析。状态码：
+
+| 状态码 | 什么时候 | 前端怎么做 |
+|---|---|---|
+| 400 | 请求格式或取值不对（缺字段、金额 0、时间解析不了、类型与分类不匹配） | 显示文案。正常使用不该出现，出现即前端 bug |
+| 401 | 没带 token 或不对 | 回登录页 |
+| 404 | 账目、账户、识别记录不存在 | 显示文案；删除时的 404 当成功 |
+| 409 | 和当前数据冲突：重名、还在用不能删、引用的分类 / 账户 / 标签已不存在 | 显示文案，并重取目录（§3.1） |
+| 500 | 写库等内部错误 | 显示文案；**不自动重试** |
+
+服务端按 CLAUDE.md：失败在一处记完整原因链，响应里只放给人看的那句。
+
+### 2.5 请求日志（改 [请求记录进库](request-log.md) 的契约）
+
+网页每次打开会有一批 GET，静态文件也走中间件，全记进 `requests` 表会淹没快捷指令的记录。改为：
+
+- **终端**：仍是每个请求一行（方法、路径、状态码、耗时）。
+- **库**：只记 `/recognize`、`/step`，以及 `/api/` 下的写请求（POST、PUT、PATCH、DELETE）。`POST /api/login` 不记请求体。
+
+## 3. 读
+
+### 3.1 `GET /api/catalog`
+
+```json
+{
+  "categories": [{ "id": 1, "kind": "expense", "parent_id": null, "name": "🍜 餐饮", "key": "food" }],
+  "accounts": [{ "id": 1, "name": "微信", "brand": "微信", "card": null },
+               { "id": 3, "name": "工资卡", "brand": "招商银行", "card": { "type": "debit", "number": "6225880012341234" } }],
+  "tags": [{ "id": 1, "name": "恋爱" }]
+}
+```
+
+- `categories`：平铺，一级和二级都在里面；同一上级之下按 `position` 排。
+- `accounts`：按 `position` 排，第一个是默认账户。`card` 为空或 `{type, number}`，`number` 是完整卡号。
+- `tags`：按 `id` 排。
+- 前端打开时取一次；收到 409、回到前台时重取（§3.4）。
+
+### 3.2 `GET /api/entries?from=<UTC>&to=<UTC>`
+
+按 `occurred_at` 取 `[from, to)` 的账目。两个参数必填，格式同 §2.3 的请求时间，`from < to`，否则 400。
+
+```json
+{
+  "entries": [{
+    "id": "0193…", "recognition_id": "0193…", "kind": "expense", "amount_cents": 3250,
+    "category_id": 12, "account_id": 1, "to_account_id": null,
+    "merchant": "瑞幸咖啡", "occurred_at": "2026-11-16T05:42:00Z", "note": "生椰拿铁",
+    "created_at": "2026-11-16T05:43:10Z", "tag_ids": [1]
+  }],
+  "earliest": "2023-04-01T02:00:00Z"
+}
+```
+
+- `entries` 按 `occurred_at` 倒序，同一时间再按 `id` 倒序。`tag_ids` 升序。
+- `earliest`：**全库**最早的 `occurred_at`，没有账目为 `null`。前端用它决定跳转面板能翻到哪一年。
+- 前端每次取一个东八区自然年（如 2026 年取 `2025-12-31T16:00:00Z` 到 `2026-12-31T16:00:00Z`），服务器不关心是不是整年。
+
+### 3.3 `GET /api/balances`
+
+```json
+{ "balances": [{ "account_id": 1, "balance_cents": 123456 }] }
+```
+
+每个账户一项（没有账目的是 0），按 `position` 排。查询见 [账目蓝图](entries.md)「常用查询」。前端用它显示余额和净资产，不再从已取的账目里算。
+
+### 3.4 数据怎么保持新鲜（不推送）
+
+快捷指令记账时网页通常不在前台，单用户也很少两台设备同时改。所以不做 SSE / WebSocket，改为：
+
+- 网页回到前台（`visibilitychange` 变成 `visible`）时，前端重取目录、余额、设置和已取过的年份。
+- 前端自己的写操作以响应为准（§5），不需要重取。
+
+后端不用为此做任何事。
+
+### 3.5 `GET /api/settings`
+
+```json
+{ "cycle_day": 1, "budget_cents": 300000, "version": "a1b2c3d", "entry_count": 1234 }
+```
+
+- `budget_cents` 为空表示不设预算。
+- `version`：`build.sh` 编译时把 `git rev-parse --short HEAD` 写进环境变量 `MICJZ_VERSION`，代码里 `option_env!("MICJZ_VERSION").unwrap_or("dev")`。
+- `entry_count`：全库账目笔数。
+
+### 3.6 `GET /api/recognitions/:id`
+
+`:id` 是账目的 `recognition_id`。返回那次识别「用户在快捷指令里第一眼看到的草稿」（`recognitions.origin`），详情页用它标出哪些字段被人改过。
+
+```json
+{
+  "id": "0193…",
+  "outcome": "ok",
+  "reason": null,
+  "first": {
+    "kind": "expense", "amount_cents": 3250, "category_id": 12, "account_id": 1, "to_account_id": null,
+    "merchant": "瑞幸咖啡", "occurred_at": "2026-11-16T05:42:00Z", "note": "生椰拿铁", "tag_ids": []
+  }
+}
+```
+
+- `outcome`：`ok | rejected | error`；`reason` 是不像支付页或识别失败的原因，没有为 `null`。
+- `origin` 里存的是名称，服务器按**当前**目录换成 id：一级名加二级名对应 `category_id`（只有一级就是一级的 id），账户名对应 `account_id`，标签名对应 `tag_ids`。已经改名或删掉的换不到，给 `null`（标签就跳过）。
+- `amount_cents` 没识别出来为 `null`。
+- 不存在 404。
+
+### 3.7 `GET /api/recognitions/:id/image`
+
+返回留存的原截图，`Content-Type` 按扩展名为 `image/png` 或 `image/jpeg`，`Cache-Control: private, max-age=31536000, immutable`（文件名是内容哈希，不会变）。识别记录不存在，或文件没留存下来（后台写入失败）时 404。前端直接用作 `<img src>`，Cookie 会自动带上。
+
+## 4. 登录
+
+### `POST /api/login`
+
+请求 `{ "token": "..." }`。
+
+- 对：204，`Set-Cookie: micjz=<token>; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`；请求头 `X-Forwarded-Proto: https`（Caddy 会带）时加 `Secure`，本地 http 开发不加。
+- 错：401 + 错误 JSON。
+
+### `POST /api/logout`
+
+204，`Set-Cookie: micjz=; Max-Age=0; Path=/`。需要已登录。
+
+Cookie 里直接放 token：单用户、没有会话表，改 `config.toml` 的 token 就让所有设备下线。`SameSite=Strict` 加上只收 JSON 请求，挡住跨站提交。
+
+## 5. 账目的写
+
+### 5.1 写入只有一条路
+
+后端要求：截图确认（`/step` 点确认）、记一笔、改、平账，都先在入口把输入解析成一个完整、强类型的账目，再交给 `db.rs` 里**同一个**写入函数（插入）或同一套校验（修改）。规则只写一份：
+
+- `kind` 是 `expense | income` 时 `category_id` 必填，且该分类的 `kind` 与账目一致（一级、二级都可以）；`transfer | adjust` 时为 `null`。
+- `kind` 是 `transfer` 时 `to_account_id` 必填且 ≠ `account_id`；其他类型为 `null`。
+- 引用的分类、账户、标签在**写入的那个事务里**确认存在，不存在 → 409「分类已不存在，请刷新后重选」等。
+- 金额范围见 §2.3。
+- `tag_ids` 去重；账目和标签在同一事务里写。
+
+不复用 `Draft`：草稿允许金额为空、按名称引用、只有支出收入，那是快捷指令的交互状态。
+
+### 5.2 `POST /api/entries`：记一笔
+
+```json
+{
+  "kind": "expense", "amount_cents": 3250, "category_id": 12,
+  "account_id": 1, "to_account_id": null,
+  "merchant": null, "occurred_at": "2026-11-17T04:30:00.000Z", "note": "午饭",
+  "tag_ids": []
+}
+```
+
+- `kind` 只能是 `expense | income | transfer`；平账走 §5.5，这里给 `adjust` → 400。
+- 所有字段都要写出来（可空的写 `null`）。
+- 服务器生成 `id`（UUIDv7）和 `created_at`，`recognition_id` 为 `null`。
+- 成功 201，返回完整账目（形状同 §3.2 的一项）。
+- **不做幂等**：前端不自动重试；响应丢了、用户手动再提交可能多记一笔，能在列表里看到并删掉。
+
+### 5.3 `PATCH /api/entries/:id`：改
+
+请求体只放要改的字段，可以是 `kind`、`amount_cents`、`category_id`、`account_id`、`to_account_id`、`merchant`、`occurred_at`、`note`、`tag_ids` 中的一个或几个：
+
+```json
+{ "note": null, "tag_ids": [1, 3] }
+```
+
+- **字段不出现 = 不改；出现且为 `null` = 清空**。只有 `merchant`、`note` 能清空，其他字段给 `null` → 400。空对象 → 400。
+- `tag_ids` 整体替换。
+- 服务器把改动合并到当前这笔上，再按 §5.1 校验整笔。
+- **改类型**：只允许支出 ↔ 收入，且同一请求里必须带新类型的 `category_id`，否则 400。转账、平账不能改类型，别的类型也不能改成它们。（前端换类型时先发「新类型 + 兜底分类」，再让用户选分类，和快捷指令一致。）
+- 平账能改金额（带符号、≠ 0），也能改时间、备注；改的就是存下的差额，不会重新按余额计算。
+- `id`、`recognition_id`、`created_at` 不能改（出现 → 400，未知字段规则已覆盖）。
+- 成功 200，返回改后的完整账目。不存在 404。
+
+### 5.4 `DELETE /api/entries/:id`：删
+
+- 删 `entries`，`entry_tags` 级联删除；`recognitions` 和截图保留。
+- 成功 204；不存在 404（前端当成功）。
+- 「撤销」只在前端：先从列表移走，几秒后才真正发 `DELETE`，没有恢复接口。
+
+### 5.5 `POST /api/accounts/:id/adjust`：平账
+
+请求：
+
+```json
+{ "balance_cents": 123456, "occurred_at": "2026-11-17T04:30:00.000Z" }
+```
+
+`balance_cents` 是用户输入的**实际余额**，可正可负可为 0。`occurred_at` 可省略，省略用服务器当前时间。
+
+服务器在**同一个事务**里：
+
+1. 按 §3.3 的查询算这个账户当前余额；
+2. 差额 = 实际余额 − 当前余额；
+3. 差额 ≠ 0 时插入一笔 `adjust`（金额 = 差额，无分类、商家、标签）。
+
+响应 200：
+
+```json
+{ "entry": { "...": "新写入的平账，形状同 §3.2" }, "balance_cents": 123456 }
+```
+
+- 差额为 0：`entry` 为 `null`，不写入；前端提示「余额已一致」。
+- 前端按响应显示结果，和自己的预览不一样也照实显示（预览之后快捷指令可能又记了账）。
+- 账户不存在 404。
+
+## 6. 账户
+
+账户名规则同命令行的 `check_name`（去首尾空白、非空、不含 `/` 和换行）；卡号规则同 `check_card_number`（去空白后至少 4 位数字）。
+
+### 6.1 新字段 `accounts.brand`（表结构 5 → 6）
+
+```sql
+ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他」
+```
+
+- 转换脚本 `deploy/db/6-account-brand.sql` 只做上面这一句；`src/schema_version` 改成 6，`src/db.rs` 的 `SCHEMA` 同步。
+- **机构列表只在前端定义**（`web/src/lib/logos.ts`，决定标志和颜色）。服务器把 `brand` 当普通文本：去首尾空白、空串当 `null`、长度 ≤ 20，不校验是否在列表里；前端遇到不认识的按「其他」显示。
+- 给模型的账户行带上机构（`catalog.rs` 的 `account_lines`）：
+  - 有卡：`工资卡（招商银行 储蓄卡 尾号 1234）`；
+  - 无卡、机构和名称不同：`零钱通（微信）`；
+  - 机构为空或和名称相同：只写名称。
+- 命令行 `account add` 不变（不设机构），之后在网页上补。
+
+### 6.2 接口
+
+| 接口 | 请求 | 成功 | 失败 |
+|---|---|---|---|
+| `POST /api/accounts` | `{ "name", "brand", "card" }`（`card` 为 `null` 或 `{ "type": "debit"\|"credit", "number" }`） | 201，账户（§3.1 形状），排在最后 | 409「已经有同名账户」 |
+| `PUT /api/accounts/:id` | 同上，整体替换 | 200，账户 | 404；409 重名 |
+| `DELETE /api/accounts/:id` | — | 204 | 404；409「还有 N 笔账目在用，不能删除」（`account_id` 或 `to_account_id` 引用都算）；409「至少保留一个账户」 |
+| `POST /api/accounts/:id/move` | `{ "to": 0 }`，从 0 开始的目标位置，超出范围夹到两端 | 200，`{ "accounts": [...] }` 全部账户的新顺序 | 404 |
+| `POST /api/accounts/:id/adjust` | 见 §5.5 | | |
+
+排序复用 `catalog.rs` 的 `reorder`；增删改和命令行共用同一套校验函数。
+
+## 7. 设置
+
+### `PUT /api/settings`
+
+请求 `{ "cycle_day": 25, "budget_cents": null }`，两个字段都要写。`cycle_day` 1～28；`budget_cents` 为 `null` 或 > 0（上限同金额）。成功 200，返回同 §3.5 的整个设置。
+
+## 8. 导出
+
+### `GET /api/export.csv`
+
+- `Content-Type: text/csv; charset=utf-8`，`Content-Disposition: attachment; filename="micjz-20261117.csv"`（东八区当天日期）。
+- UTF-8 带 BOM（Excel 和 Numbers 直接打开不乱码），逗号分隔，按 RFC 4180 加引号。
+- 全部账目，按 `occurred_at` 正序。列：
+
+| 列 | 内容 |
+|---|---|
+| 时间 | 东八区 `2026-11-16 13:42` |
+| 类型 | 支出 / 收入 / 转账 / 平账 |
+| 金额 | 元，两位小数；平账带符号，其余为正 |
+| 一级分类、二级分类 | 名称；只记了一级的二级为空 |
+| 账户、转入账户 | 名称 |
+| 商家、备注 | |
+| 标签 | 名称，用「、」连接 |
+| 来源 | 截图 / 手记（看 `recognition_id`） |
+| ID | 账目 ID |
+
+前端只放一个链接：`<a href="api/export.csv" download>`。
+
+## 9. 后端验收
+
+- `src/api/tests.rs` 补接口功能测试（临时库），至少覆盖：登录、Cookie 和 Bearer 都能访问、未登录 401；记一笔三种类型和各自的 400；改类型的规则；PATCH 的 `null` 与不出现；删除后再删 404；平账的差额和差额为 0；账户重名、在用、最后一个不能删；`move` 后顺序；`/step` 确认后 `GET /api/entries` 能看到，且走的是同一写入函数。
+- 用 curl 在本地跑一遍每个接口，贴出请求和响应样例给前端。
+- `cargo fmt`、`cargo clippy --all-targets -- -D warnings`、`cargo test`。
+- 改完把本文状态改成「已实现（日期）」，[请求记录进库](request-log.md) 同步 §2.5。
+
+建议实现顺序（每步完成即可交给前端联调）：
+
+1. 托管 + 登录 + `GET catalog / entries / settings / balances`：网页能显示真实数据；
+2. 记一笔、改、删；
+3. 账户（含 `brand` 转换）、平账；
+4. 设置修改、识别记录和截图、导出。
+
+## 10. 前端要做的（参考，前端负责）
+
+- `lib/store.svelte.ts` 里的写入函数（`addEntry`、`update`、`remove`、`saveAccount`、`removeAccount`、`moveAccount`、`setPrefs`）改成调接口，以响应为准；页面不改。
+- 加一个 `lib/api.ts`：相对路径、带 Cookie、统一处理 §2.4 的错误（401 回登录、409 重取目录）。
+- 账目按自然年缓存，见头脑风暴「账目按需取」；余额改用 §3.3。
+- 加登录页（一个 token 输入框）；设置页加「退出登录」，「更新」先只显示版本号。
+- 记账周期和预算从 `localStorage` 改成 §3.5 / §7；主题、隐藏金额仍留在浏览器。
+- 原型的假数据（`lib/mock.ts`）留作 `bun run dev` 不连服务器时的演示，或删掉，接完再定。
