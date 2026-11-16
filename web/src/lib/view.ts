@@ -41,13 +41,16 @@ export function view(e: Entry, account?: number): View {
     case "expense":
     case "income": {
       const c = categoryOf(e.category_id)!;
+      const top = topOf(c);
       const income = e.kind === "income";
-      const { icon, text } = badge(c.name);
+      const name = (x: typeof c) => badge(x.name).text;
+      // 一眼先看「花在哪类」，再看「买了什么、在哪买」；账户在详情里看。两样都没填才退回账户，免得副标题空着。
+      const meta = [e.note, e.merchant].filter((x) => x !== null);
       return {
-        mark: { text: icon },
+        mark: { text: badge(c.name).icon },
         color: color(topIndex(c)),
-        title: e.merchant ?? text,
-        meta: [text, accountName(e.account_id)],
+        title: c === top ? name(c) : `${name(top)} · ${name(c)}`,
+        meta: meta.length ? meta : [accountName(e.account_id)],
         tags,
         amount: money(e.amount_cents, income),
         tone: income ? "in" : "out",

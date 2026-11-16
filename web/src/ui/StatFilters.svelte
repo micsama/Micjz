@@ -1,12 +1,8 @@
 <script lang="ts">
-  import { app, accountOf, categoryOf, balanceOf, clearFilter, setFilter, filtering, type Dim } from "../lib/store.svelte";
+  import { app, accountOf, categoryOf, balanceOf, clearFilter, filtering, type Dim } from "../lib/store.svelte";
   import Icon from "./Icon.svelte";
   import { money } from "../lib/format";
   import { cardLabel } from "../lib/look";
-  import AccountChoices from "./AccountChoices.svelte";
-  import TagChoices from "./TagChoices.svelte";
-  import CategoryChoices from "./CategoryChoices.svelte";
-  import ChoicePopover from "./ChoicePopover.svelte";
   import AccountLogo from "./AccountLogo.svelte";
   const dims: { id: Dim; label: string }[] = [
     { id: "account", label: "账户" },
@@ -23,24 +19,6 @@
       >{selected(d.id) ?? d.label}<Icon name="chevron-down" size={12} weight={2.4} /></button
     >{/each}
   {#if filtering()}<button onclick={clearFilter}>清除</button>{/if}
-  <ChoicePopover
-    open={app.picking !== null}
-    title={`筛选${dims.find((d) => d.id === app.picking)?.label ?? ""}`}
-    onclose={() => (app.picking = null)}
-    onclear={() => {
-      if (app.picking) setFilter(app.picking, null);
-    }}
-  >
-    <div class="options">
-      {#if app.picking === "account"}
-        <AccountChoices selected={app.filter.account} onselect={(id) => setFilter("account", id)} />
-      {:else if app.picking === "tag"}
-        <TagChoices selected={app.filter.tag === null ? [] : [app.filter.tag]} onselect={(id) => setFilter("tag", id)} />
-      {:else if app.picking === "category"}
-        <CategoryChoices selected={app.filter.category} onselect={(id, final) => setFilter("category", id, !final)} />
-      {/if}
-    </div>
-  </ChoicePopover>
 </div>
 {#if account}
   <section class="account">
@@ -52,7 +30,6 @@
 
 <style>
   .filters {
-    position: relative;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -95,9 +72,5 @@
   .balance {
     margin-left: auto;
     text-align: right;
-  }
-  .options {
-    display: grid;
-    gap: 8px;
   }
 </style>

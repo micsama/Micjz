@@ -9,6 +9,7 @@
   import AccountChoices from "./AccountChoices.svelte";
   import TagChoices from "./TagChoices.svelte";
   import CategoryChoices from "./CategoryChoices.svelte";
+  import Segmented from "./Segmented.svelte";
   import Icon from "./Icon.svelte";
 
   const firstCategory = (kind: FlowKind) => {
@@ -134,11 +135,16 @@
 <div class="composer" use:keyboardInset>
   <header>
     <button class="close" aria-label="取消记账" onclick={() => (app.creating = false)}><Icon name="xmark" size={20} /></button>
-    <div class="kinds" aria-label="账目类型">
-      {#each [["expense", "支出"], ["income", "收入"], ["transfer", "转账"]] as const as [kind, label] (kind)}
-        <button class:on={draft.kind === kind} aria-pressed={draft.kind === kind} onclick={() => changeKind(kind)}>{label}</button>
-      {/each}
-    </div>
+    <Segmented
+      label="账目类型"
+      options={[
+        ["expense", "支出"],
+        ["income", "收入"],
+        ["transfer", "转账"],
+      ]}
+      value={draft.kind as "expense" | "income" | "transfer"}
+      onchange={changeKind}
+    />
     <span class="spacer"></span>
   </header>
 
@@ -382,27 +388,6 @@
     border-radius: 50%;
     background: var(--fill);
     color: var(--label2);
-  }
-  .kinds {
-    display: flex;
-    border-radius: 12px;
-    padding: 3px;
-    background: var(--fill);
-  }
-  .kinds button {
-    flex: 1;
-    min-height: 36px;
-    padding: 4px 8px;
-    border-radius: 9px;
-    background: none;
-    color: var(--label2);
-    font-size: 15px;
-  }
-  .kinds button.on {
-    background: var(--card);
-    color: var(--tint);
-    font-weight: 650;
-    box-shadow: 0 2px 5px #0000000d;
   }
   .choices {
     flex: 1;

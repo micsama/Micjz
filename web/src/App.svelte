@@ -7,6 +7,7 @@
   import Pushed from "./ui/Pushed.svelte";
   import Sheet from "./ui/Sheet.svelte";
   import FieldEditor from "./ui/FieldEditor.svelte";
+  import FilterPicker from "./ui/FilterPicker.svelte";
   import NewEntry from "./ui/NewEntry.svelte";
   import Toast from "./ui/Toast.svelte";
 
@@ -42,6 +43,12 @@
 <Sheet open={!!sheetEntry} onclose={closeSheet}>
   {#if app.sheet && sheetEntry}
     {#key app.sheet.field}<FieldEditor entry={sheetEntry} key={app.sheet.field} />{/key}
+  {/if}
+</Sheet>
+
+<Sheet open={app.picking !== null} onclose={() => (app.picking = null)}>
+  {#if app.picking}
+    {#key app.picking}<FilterPicker dim={app.picking} />{/key}
   {/if}
 </Sheet>
 

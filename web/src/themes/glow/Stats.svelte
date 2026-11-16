@@ -222,9 +222,10 @@
     <h3 class="cap">最大的几笔</h3>
     <section class="card">
       {#each biggest as e, i (e.id)}
+        {@const v = view(e)}
         <button class="cat" onclick={() => open(e.id)}>
           <span class="rank num">{i + 1}</span>
-          <span class="cn">{view(e).title}<small>{categoryOf(e.category_id)?.name} · {dateTime(e.occurred_at)}</small></span>
+          <span class="cn">{v.title}<small>{[...v.meta, dateTime(e.occurred_at)].join(" · ")}</small></span>
           <span class="cv num">{money(e.amount_cents)}<small>{pct(e.amount_cents)}</small></span>
         </button>
       {/each}

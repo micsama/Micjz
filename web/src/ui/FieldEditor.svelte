@@ -2,6 +2,7 @@
   // 面板里改一个字段：选完即保存；输入类按「完成」保存。
   import { onMount, tick } from "svelte";
   import Icon from "./Icon.svelte";
+  import SheetHead from "./SheetHead.svelte";
   import AccountChoices from "./AccountChoices.svelte";
   import TagChoices from "./TagChoices.svelte";
   import CategoryChoices from "./CategoryChoices.svelte";
@@ -80,15 +81,7 @@
   const typed = $derived(["amount_cents", "merchant", "note", "occurred_at", "tag_ids", "category_id"].includes(key));
 </script>
 
-<header class="head">
-  <button class="round" onclick={closeSheet} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2><span class="glyph"><Icon name={def.icon} size={19} weight={2.2} /></span>{labelOf(def, entry)}</h2>
-  {#if typed}
-    <button class="link done" onclick={submit}>完成</button>
-  {:else}
-    <span class="spacer"></span>
-  {/if}
-</header>
+<SheetHead icon={def.icon} title={labelOf(def, entry)} onclose={closeSheet} action={typed ? { label: "完成", run: submit } : undefined} />
 
 <div class="body">
   {#if key === "amount_cents"}
@@ -158,47 +151,6 @@
 </div>
 
 <style>
-  .head {
-    display: grid;
-    grid-template-columns: 80px 1fr 80px;
-    align-items: center;
-    padding: 0 16px 10px;
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    margin: 0;
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .glyph {
-    display: flex;
-    color: var(--tint);
-  }
-  .link {
-    border: 0;
-    background: none;
-    padding: 6px 0;
-    color: var(--tint);
-    font: inherit;
-    font-size: 17px;
-  }
-  .done {
-    justify-self: end;
-    font-weight: 600;
-  }
-  .round {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 0;
-    display: grid;
-    place-items: center;
-    background: var(--fill);
-    color: var(--label2);
-  }
   .body {
     overflow-y: auto;
     overflow-x: hidden;
