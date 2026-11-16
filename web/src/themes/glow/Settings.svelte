@@ -46,9 +46,11 @@
             <div class="p-row"><i style:background="var(--c{i})"></i><b></b><em></em></div>
           {/each}
         </div>
-        <span class="name">{t.name}</span>
+        <span class="head">
+          <span class="name">{t.name}</span>
+          <span class="radio">{#if themeState.id === t.id}<Icon name="check" size={13} weight={3.4} />{/if}</span>
+        </span>
         <small>{t.blurb}</small>
-        <span class="radio">{#if themeState.id === t.id}<Icon name="check" size={13} weight={3.4} />{/if}</span>
       </button>
     {/each}
   </div>
@@ -56,13 +58,13 @@
   <h3 class="cap">记账</h3>
   <div class="group">
     <button class="row" onclick={() => (editing = "cycle")}>
-      <span class="fi" style:--fc="var(--c2)">📅</span>
+      <span class="fi" style:--fc="var(--c2)"><Icon name="calendar" size={18} weight={2.2} /></span>
       <span class="label">记账周期</span>
       <span class="value">{prefs.cycleDay === 1 ? "自然月" : `每月 ${prefs.cycleDay} 号起`}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
     <button class="row" onclick={() => { holdKeyboard("decimal"); editing = "budget"; }}>
-      <span class="fi" style:--fc="var(--c0)">🎯</span>
+      <span class="fi" style:--fc="var(--c0)"><Icon name="target" size={18} weight={2.2} /></span>
       <span class="label">每期预算</span>
       <span class="value num">{prefs.budget === null ? "不设" : money(prefs.budget)}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
@@ -73,14 +75,14 @@
   <h3 class="cap">服务</h3>
   <div class="group">
     <button class="row" onclick={runUpdate}>
-      <span class="fi" style:--fc="var(--c1)">⬆️</span>
+      <span class="fi" style:--fc="var(--c1)"><Icon name="update" size={18} weight={2.2} /></span>
       <span class="label">更新到最新版本</span>
       <span class="value">
         {#if stage >= 0}<span class="spin"></span>{STAGES[stage]}…{:else if updated}已是最新 · 0c3c136{/if}
       </span>
     </button>
     <div class="row">
-      <span class="fi" style:--fc="var(--c7)">🧾</span>
+      <span class="fi" style:--fc="var(--c7)"><Icon name="receipt" size={18} weight={2.2} /></span>
       <span class="label">账目</span>
       <span class="value num">{app.entries.length} 笔</span>
     </div>
@@ -213,10 +215,14 @@
     color: var(--label2);
     line-height: 1.35;
   }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 4px;
+  }
   .radio {
-    position: absolute;
-    right: 16px;
-    bottom: 40px;
+    flex: none;
     width: 22px;
     height: 22px;
     border-radius: 50%;
@@ -275,8 +281,8 @@
     border-radius: 8px;
     display: grid;
     place-items: center;
-    font-size: 15px;
-    background: linear-gradient(145deg, color-mix(in oklab, var(--fc) 50%, white), var(--fc));
+    color: #fff;
+    background: linear-gradient(160deg, color-mix(in oklab, var(--fc) 80%, white), var(--fc));
   }
   .value {
     flex: 1;

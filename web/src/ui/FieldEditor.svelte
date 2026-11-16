@@ -71,7 +71,7 @@
 
 <header class="head">
   <button class="round" onclick={closeSheet} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2><span class="emoji">{def.emoji}</span>{def.label}</h2>
+  <h2><span class="glyph"><Icon name={def.icon} size={19} weight={2.2} /></span>{def.label}</h2>
   {#if typed}
     <button class="link done" onclick={submit}>完成</button>
   {:else}
@@ -147,13 +147,17 @@
     padding: 0 16px 10px;
   }
   h2 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     margin: 0;
-    text-align: center;
     font-size: 17px;
     font-weight: 600;
   }
-  .emoji {
-    margin-right: 6px;
+  .glyph {
+    display: flex;
+    color: var(--tint);
   }
   .link {
     border: 0;

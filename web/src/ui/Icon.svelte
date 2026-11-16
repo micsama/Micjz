@@ -1,8 +1,36 @@
+<script module lang="ts">
+  export type IconName =
+    | "chevron-right"
+    | "chevron-left"
+    | "chevron-down"
+    | "check"
+    | "xmark"
+    | "list"
+    | "gear"
+    | "trash"
+    | "photo"
+    | "sparkles"
+    | "wallet"
+    | "copy"
+    | "pencil"
+    | "yen"
+    | "arrows"
+    | "grid"
+    | "card"
+    | "store"
+    | "clock"
+    | "tag"
+    | "note"
+    | "calendar"
+    | "target"
+    | "update"
+    | "receipt";
+</script>
+
 <script lang="ts">
   // 仿 SF Symbols 的线条图标。
-  type Name = "chevron-right" | "chevron-left" | "chevron-down" | "check" | "xmark" | "list" | "gear" | "trash" | "photo" | "sparkles" | "wallet";
-  let { name, size = 17, weight = 2 }: { name: Name; size?: number; weight?: number } = $props();
-  const paths: Record<Name, string> = {
+  let { name, size = 17, weight = 2 }: { name: IconName; size?: number; weight?: number } = $props();
+  const paths: Record<IconName, string> = {
     "chevron-right": "M9 5l7 7-7 7",
     "chevron-left": "M15 5l-7 7 7 7",
     "chevron-down": "M5 9l7 7 7-7",
@@ -13,7 +41,21 @@
     trash: "M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 002 2h8a2 2 0 002-2l1-12M9 7V4h6v3",
     photo: "M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5h.01",
     wallet: "M4 7.5A2.5 2.5 0 016.5 5H18v3M4 7.5V17a2 2 0 002 2h14V8H6.5A2.5 2.5 0 014 7.5zM16 13.5h.01",
-    sparkles: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
+    copy: "M9 8h9a1 1 0 011 1v11a1 1 0 01-1 1H9a1 1 0 01-1-1V9a1 1 0 011-1zM16 8V5a1 1 0 00-1-1H6a1 1 0 00-1 1v11a1 1 0 001 1h2",
+    pencil: "M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4",
+    yen: "M7 4l5 7 5-7M12 11v9M8 13h8M8 16.5h8",
+    arrows: "M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4",
+    grid: "M5 4h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zM15 4h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5a1 1 0 011-1zM5 14h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4a1 1 0 011-1zM15 14h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4a1 1 0 011-1z",
+    card: "M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zM3 10h18M7 15h4",
+    store: "M4 9l1.5-5h13L20 9M5 9v11h14V9M4 9a2.7 2.7 0 005.3 0 2.7 2.7 0 005.4 0 2.7 2.7 0 005.3 0M10 20v-5h4v5",
+    clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2",
+    tag: "M3.5 12.5V4.5a1 1 0 011-1h8l8.5 8.5-9 9zM8 8h.01",
+    note: "M7 3h8l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1zM14 3v5h5M9 12h7M9 16h5",
+    calendar: "M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM4 10h16M8 3v4M16 3v4",
+    target: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 16a4 4 0 100-8 4 4 0 000 8zM12 12h.01",
+    update: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v9M8 12l4 4 4-4",
+    receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
+    sparkles:"M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
   };
 </script>
 

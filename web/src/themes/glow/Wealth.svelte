@@ -1,17 +1,18 @@
 <script lang="ts">
   import Icon from "../../ui/Icon.svelte";
   import Sheet from "../../ui/Sheet.svelte";
-  import SwipeRow from "../../ui/SwipeRow.svelte";
-  import type { Action } from "../../ui/ActionSheet.svelte";
+  import SwipeRow, { type SwipeAction } from "../../ui/SwipeRow.svelte";
   import CardEditor from "../../ui/CardEditor.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
-  import { app, copy, makeDefault, openAccount, periodEntries, prefs, total } from "../../lib/store.svelte";
+  import { Reorder } from "../../ui/reorder.svelte";
+  import { app, copy, moveAccount, openAccount, periodEntries, prefs, total } from "../../lib/store.svelte";
   import { money, periodLabel } from "../../lib/format";
   import { brand, cardLabel } from "../../lib/look";
   import type { Account } from "../../lib/types";
 
   let collapsed = $state(false);
   let editing = $state<Account | null>(null);
+  const reorder = new Reorder(moveAccount);
 
   const list = $derived(periodEntries(app.period));
   const spent = $derived(total(list, "expense"));
@@ -25,12 +26,10 @@
   );
   const flow = $derived(rows.filter((r) => r.spent));
 
-  function actions(a: Account): Action[] {
-    const out: Action[] = [];
-    // 左滑先露出最常用的复制卡号，其余进「更多」。
-    if (a.card) out.push({ label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
-    out.push({ label: a.card ? "修改卡号" : "添加卡号", run: () => { holdKeyboard("numeric"); editing = a; } });
-    if (app.catalog.accounts[0].name !== a.name) out.push({ label: "设为默认账户", run: () => makeDefault(a.name) });
+  function actions(a: Account): SwipeAction[] {
+    const out: SwipeAction[] = [];
+    if (a.card) out.push({ icon: "copy", label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
+    out.push({ icon: "pencil", label: a.card ? "修改卡号" : "添加卡号", run: () => { holdKeyboard("numeric"); editing = a; } });
     return out;
   }
 </script>
@@ -53,10 +52,11 @@
   </section>
 
   <h3 class="cap2">账户</h3>
-  <div class="group">
+  <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
     {#each rows as r, i (r.a.name)}
       {@const b = brand(r.a.name)}
-      <SwipeRow actions={actions(r.a)} title={r.a.name + (r.a.card ? ` · ${cardLabel(r.a.card)}` : "")}>
+      <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
+      <SwipeRow actions={actions(r.a)}>
       <button class="row" onclick={() => openAccount(r.a.name)}>
         <span class="logo" style:background={b.bg}>{b.mark}</span>
         <span class="main">
@@ -70,9 +70,10 @@
         <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
       </button>
       </SwipeRow>
+      </div>
     {/each}
   </div>
-  <p class="foot">点账户看它的账目；左滑可以复制、修改卡号，或设为默认账户（识别不出账户时用它）。余额和对账以后加在这里。</p>
+  <p class="foot">点账户看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制或修改卡号。余额和对账以后加在这里。</p>
   <div class="tail"></div>
 </div>
 
@@ -172,6 +173,9 @@
     overflow: hidden;
     background: var(--card);
     box-shadow: var(--shadow-card);
+    /* 长按是拿起排序，不弹系统菜单、不选中文字。 */
+    -webkit-touch-callout: none;
+    user-select: none;
   }
   .row {
     position: relative;
@@ -193,7 +197,19 @@
     transition: background-color 0s, transform 0.45s;
     transform: scale(0.985);
   }
-  .group :global(.swipe + .swipe .row::before) {
+  .item {
+    position: relative;
+    background: var(--card);
+  }
+  .sorting .item {
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .sorting .item.lifted {
+    z-index: 2;
+    transition: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .item + .item :global(.row::before) {
     content: "";
     position: absolute;
     left: 66px;

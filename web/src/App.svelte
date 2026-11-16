@@ -8,7 +8,6 @@
   import Sheet from "./ui/Sheet.svelte";
   import FieldEditor from "./ui/FieldEditor.svelte";
   import Toast from "./ui/Toast.svelte";
-  import ActionSheet from "./ui/ActionSheet.svelte";
 
   const t = $derived(theme(themeState.id));
   const depth = $derived(app.stack.length);
@@ -47,8 +46,6 @@
     {#key app.sheet.field}<FieldEditor entry={sheetEntry} key={app.sheet.field} />{/key}
   {/if}
 </Sheet>
-
-<ActionSheet open={!!app.menu} title={app.menu?.title ?? ""} actions={app.menu?.actions ?? []} oncancel={() => (app.menu = null)} />
 
 <Toast />
 

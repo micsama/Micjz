@@ -17,7 +17,11 @@ iPhone Safari 里打开、添加到主屏幕用，看起来像原生 App。桌�
 - **颜色**：只用 iOS 语义色，浅色和深色各一套，跟随系统：分组背景 `#F2F2F7 / #000`，卡片 `#FFF / #1C1C1E`，次要文字 `rgba(60,60,67,.6)`，分隔线 0.5px，强调色系统蓝 `#007AFF / #0A84FF`，删除用系统红。全站只有这一个强调色。
 - **材质**：顶部导航栏和底部标签栏半透明毛玻璃（`backdrop-filter: saturate(180%) blur(20px)`），内容从下面滚过去。
 - **列表**：inset grouped，圆角 10，左右边距 16，行高至少 44。分隔线从文字处开始，不顶到左边。
-- **分类图标**：彩色圆角方块里放分类名的首字，像「设置」的图标；颜色按一级分类固定分配。不新增表字段，以后真要图标再说。银行账户以后配 logo。
+- **图标：SVG 和 emoji 分工**（原型里试过）：
+  - 固定的界面元素用 SVG 线条图标：字段行、设置行是彩色圆角方块里的白色符号，像「设置」；左滑按钮、导航、箭头同理。风格统一、深浅色都清楚、能随主题换色。
+  - 内容用 emoji：分类（四十来个二级，一个个画 SVG 不划算，emoji 表现力也更好）、软糖主题的装饰。分类 emoji 在前端 `look.ts` 配，不进表。
+  - 字段的 emoji 仍保留在 `fields.ts`，和快捷指令主菜单一致；软糖主题的详情页还在用。字段编辑面板两个主题共用，标题用 SVG。
+  - 银行账户以后配 logo，目前用品牌色圆底加首字。
 - **日期**：今天、昨天、周三、11月3日，跨年再带年份。
 - **图标和启动**：`apple-touch-icon`，状态栏 `black-translucent`，`theme-color` 跟随深浅色。
 
@@ -88,6 +92,7 @@ iPhone Safari 里打开、添加到主屏幕用，看起来像原生 App。桌�
 - **接口**（都在 Cookie 鉴权下）：
   - `POST /api/login`：token → Set-Cookie
   - `GET /api/catalog`：分类、账户、标签（编辑时的选项）
+  - `POST /api/accounts/move { name, to }`：调整账户顺序，`to` 从 1 数；复用 `catalog.rs` 里 `account move` 的实现，写 `accounts.position`。网页上长按拖动排序，排第一的就是默认账户；列表顺序一律以 `GET /api/catalog` 返回的为准。前端先挪，失败就恢复原顺序并提示。
   - `GET /api/entries?month=2026-11`：一个月的账目
   - `GET /api/entries/:id`：详情，带识别原始草稿
   - `PATCH /api/entries/:id`、`DELETE /api/entries/:id`

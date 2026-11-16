@@ -1,23 +1,28 @@
 <script module lang="ts">
+  import type { IconName } from "./Icon.svelte";
+
+  export interface SwipeAction {
+    icon: IconName;
+    /** 读屏用的名字，界面上只显示图标。 */
+    label: string;
+    /** 危险操作（删除）：红底，点了先整行滑出再执行。 */
+    danger?: boolean;
+    run: () => void;
+  }
+
   // 同一时刻只有一行是展开的。
   let closeOpen: (() => void) | null = null;
 </script>
 
 <script lang="ts">
-  // 左滑露出这一行的操作按钮，点按钮才执行。全 app 行操作只用这一种手势：
-  // 最多露两个按钮，多于两个时第二个换成「更多」，其余进底部菜单（title 作菜单标题）。
-  // 危险操作（删除）点了先整行滑出再执行。
+  // 左滑露出这一行的图标按钮，点按钮才执行。全 app 行操作只用这一种手势，按钮最多两个。
   import type { Snippet } from "svelte";
-  import type { Action } from "./ActionSheet.svelte";
-  import { showMenu } from "../lib/store.svelte";
+  import Icon from "./Icon.svelte";
 
-  let { actions, title = "", children }: { actions: Action[]; title?: string; children: Snippet } = $props();
+  let { actions, children }: { actions: SwipeAction[]; children: Snippet } = $props();
 
-  const BUTTON = 76;
-  const shown = $derived(
-    actions.length <= 2 ? actions : [actions[0], { label: "更多", run: () => showMenu(title, actions.slice(1)) }],
-  );
-  const ACTION = $derived(BUTTON * shown.length);
+  const BUTTON = 64;
+  const ACTION = $derived(BUTTON * actions.length);
   let x = $state(0);
   let animate = $state(true);
   let width = $state(1);
@@ -68,7 +73,7 @@
     }
   }
 
-  function run(a: Action) {
+  function run(a: SwipeAction) {
     if (a.danger) {
       animate = true;
       x = -width;
@@ -79,22 +84,24 @@
     }
   }
 
-  // 拖动后的 click 不算点击；展开时点一下先收起。
+  // 拖动结束时鼠标会补发一次 click，只吞掉、不收起；展开时点一下才收起。
   function click(e: MouseEvent) {
-    if (moved || x !== 0) {
-      e.stopPropagation();
-      e.preventDefault();
-      close();
-    }
+    if (!moved && x === 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (!moved) close();
   }
 </script>
 
 <div class="swipe" bind:clientWidth={width}>
-  <div class="actions" style:width="{Math.max(ACTION, -x)}px">
-    {#each shown as a, i (a.label)}
-      <button class:danger={a.danger} class:more={i > 0 && !a.danger} onclick={() => run(a)}>{a.label}</button>
-    {/each}
-  </div>
+  <!-- 收起时不渲染按钮，免得底色从圆角边缘透出来。 -->
+  {#if x < 0}
+    <div class="actions" style:width="{Math.max(ACTION, -x)}px">
+      {#each actions as a (a.label)}
+        <button class:danger={a.danger} aria-label={a.label} onclick={() => run(a)}><Icon name={a.icon} size={22} weight={2} /></button>
+      {/each}
+    </div>
+  {/if}
   <div
     class="content"
     class:animate
@@ -135,20 +142,18 @@
   .actions button {
     flex: 1;
     min-width: 0;
-    padding: 0 6px;
+    display: grid;
+    place-items: center;
     border: 0;
     background: var(--tint);
     color: #fff;
-    font: inherit;
-    font-size: 15px;
-    font-weight: 500;
-    white-space: nowrap;
     overflow: hidden;
   }
-  .actions .more {
+  .actions button + button {
     background: #8e8e93;
   }
-  .actions .danger {
+  .actions .danger,
+  .actions button + .danger {
     background: var(--red);
   }
 </style>

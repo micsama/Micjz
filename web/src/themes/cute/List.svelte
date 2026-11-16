@@ -88,7 +88,7 @@
         </h3>
         {#each g.entries as e (e.id)}
           <div class="card">
-            <SwipeRow actions={[{ label: "不要了", danger: true, run: () => remove(e.id) }]}>
+            <SwipeRow actions={[{ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) }]}>
               <button class="row" onclick={() => open(e.id)}>
                 <span class="bubble" style:--c={color(categoryIndex(e))}>{emoji(e)}</span>
                 <span class="main">

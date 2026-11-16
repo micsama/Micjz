@@ -103,7 +103,7 @@
         <h3 class="day"><span>{dayLabel(g.at)}</span>{#if g.spent}<span class="num">支出 {money(g.spent)}</span>{/if}</h3>
         <div class="group">
           {#each g.entries as e (e.id)}
-            <SwipeRow actions={[{ label: "删除", danger: true, run: () => remove(e.id) }]}>
+            <SwipeRow actions={[{ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) }]}>
               <button class="row" onclick={() => open(e.id)}>
                 <span class="icon" style:--c={color(categoryIndex(e))}>{emoji(e)}</span>
                 <span class="main">

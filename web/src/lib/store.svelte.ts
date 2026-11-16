@@ -1,6 +1,5 @@
 // 页面状态和所有操作；主题只负责展示，改数据都走这里。
 import type { Account, Entry, FieldKey, Fields } from "./types";
-import type { Action } from "../ui/ActionSheet.svelte";
 import { catalog, entries as mockEntries } from "./mock";
 import { dayKey, periodOf, periodRange } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
@@ -46,8 +45,6 @@ export const app = $state({
   stack: [] as Page[],
   sheet: null as { id: string; field: FieldKey } | null,
   toast: null as Toast | null,
-  /** 共用的底部菜单：左滑「更多」等打开。 */
-  menu: null as { title: string; actions: Action[] } | null,
   /** 已删、可撤销的账目：撤销期过了才真正删除。 */
   hidden: [] as string[],
 });
@@ -121,14 +118,14 @@ export const categoryIndex = (e: Pick<Fields, "kind" | "category">) =>
 
 export const open = (id: string) => app.stack.push({ kind: "entry", id });
 export const openStats = () => app.stack.push({ kind: "stats" });
-export const showMenu = (title: string, actions: Action[]) => (app.menu = { title, actions });
 export const openAccount = (name: string) => app.stack.push({ kind: "account", name });
 
-/** 挪到第一位：识别不出账户时默认用它。 */
-export function makeDefault(name: string) {
-  const list = app.catalog.accounts;
-  app.catalog.accounts = [list.find((a) => a.name === name)!, ...list.filter((a) => a.name !== name)];
-  toast(`已设为默认：${name}`);
+/** 调整账户顺序；排第一的是默认账户，识别不出账户时用它。接服务器后写 `accounts.position`，原型里只改内存。 */
+export function moveAccount(from: number, to: number) {
+  const list = [...app.catalog.accounts];
+  list.splice(to, 0, ...list.splice(from, 1));
+  app.catalog.accounts = list;
+  if (from === 0 || to === 0) toast(`默认账户：${list[0].name}`);
 }
 
 export function setCard(name: string, card: Account["card"]) {

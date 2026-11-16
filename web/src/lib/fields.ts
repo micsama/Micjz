@@ -1,4 +1,5 @@
 import type { Entry, FieldKey } from "./types";
+import type { IconName } from "../ui/Icon.svelte";
 import { categoryLabel, dateTime, money } from "./format";
 
 export type Editor = "number" | "kind" | "category" | "account" | "text" | "date" | "tags";
@@ -6,7 +7,10 @@ export type Editor = "number" | "kind" | "category" | "account" | "text" | "date
 export interface FieldDef {
   key: FieldKey;
   label: string;
+  /** 和快捷指令主菜单一致；软糖等主题用。 */
   emoji: string;
+  /** 线条图标；晶彩的字段行用。 */
+  icon: IconName;
   editor: Editor;
   show: (e: Entry) => string;
 }
@@ -15,14 +19,14 @@ const orNone = (v: string | null) => v ?? "";
 
 // 字段的唯一定义：顺序、名称、emoji 与快捷指令主菜单一致。
 export const FIELDS: FieldDef[] = [
-  { key: "amount_cents", label: "金额", emoji: "💰", editor: "number", show: (e) => money(e.amount_cents) },
-  { key: "kind", label: "类型", emoji: "↔️", editor: "kind", show: (e) => (e.kind === "expense" ? "支出" : "收入") },
-  { key: "category", label: "分类", emoji: "🗂️", editor: "category", show: (e) => categoryLabel(e) },
-  { key: "account", label: "账户", emoji: "💳", editor: "account", show: (e) => e.account },
-  { key: "merchant", label: "商家", emoji: "🏪", editor: "text", show: (e) => orNone(e.merchant) },
-  { key: "occurred_at", label: "时间", emoji: "🕒", editor: "date", show: (e) => dateTime(e.occurred_at) },
-  { key: "tags", label: "标签", emoji: "🏷️", editor: "tags", show: (e) => e.tags.join("、") },
-  { key: "note", label: "备注", emoji: "📝", editor: "text", show: (e) => orNone(e.note) },
+  { key: "amount_cents", label: "金额", emoji: "💰", icon: "yen", editor: "number", show: (e) => money(e.amount_cents) },
+  { key: "kind", label: "类型", emoji: "↔️", icon: "arrows", editor: "kind", show: (e) => (e.kind === "expense" ? "支出" : "收入") },
+  { key: "category", label: "分类", emoji: "🗂️", icon: "grid", editor: "category", show: (e) => categoryLabel(e) },
+  { key: "account", label: "账户", emoji: "💳", icon: "card", editor: "account", show: (e) => e.account },
+  { key: "merchant", label: "商家", emoji: "🏪", icon: "store", editor: "text", show: (e) => orNone(e.merchant) },
+  { key: "occurred_at", label: "时间", emoji: "🕒", icon: "clock", editor: "date", show: (e) => dateTime(e.occurred_at) },
+  { key: "tags", label: "标签", emoji: "🏷️", icon: "tag", editor: "tags", show: (e) => e.tags.join("、") },
+  { key: "note", label: "备注", emoji: "📝", icon: "note", editor: "text", show: (e) => orNone(e.note) },
 ];
 
 export const field = (key: FieldKey) => FIELDS.find((f) => f.key === key)!;

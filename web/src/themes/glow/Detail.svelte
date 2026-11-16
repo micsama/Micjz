@@ -40,7 +40,7 @@
   <div class="group">
     {#each rows as f, i (f.key)}
       <button class="row" onclick={() => edit(entry.id, f.key)}>
-        <span class="fi" style:--fc="var({tint[i]})">{f.emoji}</span>
+        <span class="fi" style:--fc="var({tint[i]})"><Icon name={f.icon} size={18} weight={2.2} /></span>
         <span class="label">{f.label}</span>
         <span class="value" class:empty={!f.show(entry)}>{f.show(entry) || "未填写"}</span>
         <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
@@ -59,7 +59,7 @@
     </button>
     {#each diff as d (d.def.key)}
       <div class="row diff">
-        <span class="fi" style:--fc="var(--c7)">{d.def.emoji}</span>
+        <span class="fi" style:--fc="var(--c7)"><Icon name={d.def.icon} size={18} weight={2.2} /></span>
         <span class="label">{d.def.label}</span>
         <span class="value"><s>{d.from}</s><span class="arrow">→</span>{d.to}</span>
       </div>
@@ -244,8 +244,8 @@
     border-radius: 8px;
     display: grid;
     place-items: center;
-    font-size: 15px;
-    background: linear-gradient(145deg, color-mix(in oklab, var(--fc) 50%, white), var(--fc));
+    color: #fff;
+    background: linear-gradient(160deg, color-mix(in oklab, var(--fc) 80%, white), var(--fc));
   }
   .label {
     flex: none;
