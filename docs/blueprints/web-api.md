@@ -12,6 +12,7 @@
 
 - **分类、标签的网页管理**：原型还没做，补完原型再定接口。在那之前仍用命令行。
 - **网页上「更新到最新版本」**：涉及进程自己重启，单独设计。这一版设置页只显示版本号。
+- **Face ID（Passkey）登录**：以后有空再看，这一版用密码。
 - **服务器推送**：不做，见 §3.4。
 - **疑似重复、退款、报销**：见 roadmap「以后再看」。
 
@@ -34,12 +35,13 @@
 
 ### 2.2 鉴权
 
-- 同一个 token，两种带法，**所有受保护的路由都接受这两种**：
-  - `Authorization: Bearer <token>`：快捷指令和 curl 调试用；
-  - Cookie `micjz=<token>`：网页用。
+快捷指令和网页分开认证，和 micnext 的网页登录基本一致：
+
+- **快捷指令**：`/recognize`、`/step` 仍用 `config.toml` 的 token（`Authorization: Bearer <token>`），不变。
+- **网页**：`/api/*` 只认登录后的会话 Cookie（§4），不接受 Bearer。token 泄露不会连带网页数据，忘了密码也不影响快捷指令记账。
 - 不受保护的只有静态文件和 `POST /api/login`。
-- 比较 token 用常数时间比较。
-- 未通过：`/api/*` 返回 401 + §2.4 的错误 JSON；`/recognize`、`/step` 保持现状（`done` 响应）。
+- 未通过：`/api/*` 返回 401「未登录或登录已过期」；`/recognize`、`/step` 保持现状（`done` 响应）。
+- **写请求只接受本站页面发起**：`/api/*` 的非 GET 请求，有 `Sec-Fetch-Site` 时必须是 `same-origin`；没有时如果带 `Origin`，它的主机必须等于 `Host`；两个都没有的是非浏览器客户端，放行。不符合返回 403。同站的其他来源（同 IP 的其他端口、兄弟子域名）也会带上 Cookie，`SameSite` 挡不住。
 
 ### 2.3 数据格式
 
@@ -65,9 +67,11 @@
 | 状态码 | 什么时候 | 前端怎么做 |
 |---|---|---|
 | 400 | 请求格式或取值不对（缺字段、金额 0、时间解析不了、类型与分类不匹配） | 显示文案。正常使用不该出现，出现即前端 bug |
-| 401 | 没带 token 或不对 | 回登录页 |
+| 401 | 未登录或登录已过期（登录接口自己的 401 是密码不对，见 §4） | 回登录页 |
+| 403 | 写请求不是从本站页面发起的（§2.2） | 显示文案 |
 | 404 | 账目、账户、识别记录不存在 | 显示文案；删除时的 404 当成功 |
 | 409 | 和当前数据冲突：重名、还在用不能删、引用的分类 / 账户 / 标签已不存在 | 显示文案，并重取目录（§3.1） |
+| 429 | 登录失败太多次（§4） | 在登录表单上显示文案 |
 | 500 | 写库等内部错误 | 显示文案；**不自动重试** |
 
 服务端按 CLAUDE.md：失败在一处记完整原因链，响应里只放给人看的那句。
@@ -77,7 +81,7 @@
 网页每次打开会有一批 GET，静态文件也走中间件，全记进 `requests` 表会淹没快捷指令的记录。改为：
 
 - **终端**：仍是每个请求一行（方法、路径、状态码、耗时）。
-- **库**：只记 `/recognize`、`/step`，以及 `/api/` 下的写请求（POST、PUT、PATCH、DELETE）。`POST /api/login` 不记请求体。
+- **库**：只记 `/recognize`、`/step`，以及 `/api/` 下的写请求（POST、PUT、PATCH、DELETE）。`POST /api/login`、`PUT /api/password` 不记请求体。
 
 ## 3. 读
 
@@ -171,18 +175,57 @@
 
 ## 4. 登录
 
-### `POST /api/login`
+照 micnext 的 [网页登录](../../../micnext/docs/blueprints/web-login.md)：单用户，用户名固定，密码哈希存库，会话 Cookie 签名、服务器不存会话。
 
-请求 `{ "token": "..." }`。
+### 4.1 行为
 
-- 对：204，`Set-Cookie: micjz=<token>; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`；请求头 `X-Forwarded-Proto: https`（Caddy 会带）时加 `Secure`，本地 http 开发不加。
-- 错：401 + 错误 JSON。
+- **登录页**：用户名、密码、「登录」。用户名固定为 `dzmfg`（常量），表单上照样填，iPhone 钥匙串才会一起记住、自动填。
+- **有效期 30 天，从最后一次使用算起**：30 天内打开过就一直保持登录；连续 30 天没打开，回到登录页。
+- **登录失败**：401「用户名或密码不正确」，不区分哪一项错。
+- **限速**：进程内只计全局的登录失败次数，10 分钟内满 10 次后，这个窗口剩下的时间里登录一律 429「登录尝试过多，请稍后再试」。成功登录不清零。服务经公网访问，密码可能不够强，需要这层保护。
+- **退出登录**：设置页底部。
+- **改密码**：设置页「修改密码」，填当前密码和新密码（至少 8 位）。改完其他设备都要重新登录，当前设备保持登录。
+- **初始密码和找回**：在服务器上运行 `micjz [config.toml] password`，按提示输两次新密码（终端里不回显，也可以从管道输入），效果同网页改密码。服务运行中也能执行，和现有管理命令同一个入口。
+  - 还没设过密码时，登录接口返回 409「尚未设置密码：在服务器上运行 micjz password」，登录页照常显示这句。
 
-### `POST /api/logout`
+### 4.2 存储（表结构 5 → 6，和 §6.1 同一次转换）
 
-204，`Set-Cookie: micjz=; Max-Age=0; Path=/`。需要已登录。
+```sql
+CREATE TABLE web_admin (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  password_hash TEXT NOT NULL,   -- Argon2id 的 PHC 字符串
+  session_key   BLOB NOT NULL    -- 32 字节随机值，签 Cookie 用
+) STRICT;
+```
 
-Cookie 里直接放 token：单用户、没有会话表，改 `config.toml` 的 token 就让所有设备下线。`SameSite=Strict` 加上只收 JSON 请求，挡住跨站提交。
+- 单行表，没设密码时没有这一行。
+- 每次设密码（命令行或网页）都重新生成 `session_key`，旧 Cookie 随之全部失效。
+- 密码和会话都存库不进 `config.toml`：网页上能改，命令行也能改，不用重启。
+
+### 4.3 会话 Cookie
+
+- 名称 `micjz_session`，值 `<到期毫秒>.<签名>`；签名是用 `session_key` 对到期时间做的 HMAC-SHA256，base64url 无填充。服务器不存会话。
+- 属性：`HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`；请求头 `X-Forwarded-Proto: https`（Caddy 会带）时加 `Secure`，本地 http 开发不加（Safari 在 http 上不收带 `Secure` 的 Cookie）。
+- **续期**：鉴权通过的请求，Cookie 签发已超过 1 天时，在响应里重新下发一张 30 天的。最多每天续一次，不用每个请求都写。
+- 用户名、有效期、续期间隔、限速参数都是代码里的常量。
+
+### 4.4 接口
+
+| 接口 | 请求 | 成功 | 失败 |
+|---|---|---|---|
+| `POST /api/login`（不需要登录） | `{ "username", "password" }` | 204，下发 Cookie | 401 用户名或密码不正确；409 还没设密码；429 尝试过多 |
+| `POST /api/logout` | — | 204，`Set-Cookie: micjz_session=; Max-Age=0; Path=/` | — |
+| `PUT /api/password` | `{ "current", "new" }` | 204，给当前设备下发新 Cookie | 400 当前密码不正确；400 新密码少于 8 位 |
+
+- 登录接口的错误只在登录表单上显示，不触发「回登录页」。
+- 改密码时当前密码不对给 400 而不是 401，免得前端当成登录过期。
+- Argon2 校验耗 CPU，放到阻塞线程里做。
+
+### 4.5 依赖
+
+- 新增 `argon2`（RustCrypto，纯 Rust）：密码哈希。
+- 新增直接依赖 `ring`：HMAC 和随机数。它已在依赖树里（rustls 用的就是它），不增加编译内容。
+- 不加不回显输入的库：命令行先看标准输入是不是终端，是就用 `stty -echo` 关回显，不是就直接读管道（同 micnext 的 `read_hidden`）。
 
 ## 5. 账目的写
 
@@ -273,7 +316,7 @@ Cookie 里直接放 token：单用户、没有会话表，改 `config.toml` 的 
 ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他」
 ```
 
-- 转换脚本 `deploy/db/6-account-brand.sql` 只做上面这一句；`src/schema_version` 改成 6，`src/db.rs` 的 `SCHEMA` 同步。
+- 转换脚本 `deploy/db/6-web.sql` 做上面这一句和 §4.2 的建表；`src/schema_version` 改成 6，`src/db.rs` 的 `SCHEMA` 同步。
 - **机构列表只在前端定义**（`web/src/lib/logos.ts`，决定标志和颜色）。服务器把 `brand` 当普通文本：去首尾空白、空串当 `null`、长度 ≤ 20，不校验是否在列表里；前端遇到不认识的按「其他」显示。
 - 给模型的账户行带上机构（`catalog.rs` 的 `account_lines`）：
   - 有卡：`工资卡（招商银行 储蓄卡 尾号 1234）`；
@@ -323,7 +366,7 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 
 ## 9. 后端验收
 
-- `src/api/tests.rs` 补接口功能测试（临时库），至少覆盖：登录、Cookie 和 Bearer 都能访问、未登录 401；记一笔三种类型和各自的 400；改类型的规则；PATCH 的 `null` 与不出现；删除后再删 404；平账的差额和差额为 0；账户重名、在用、最后一个不能删；`move` 后顺序；`/step` 确认后 `GET /api/entries` 能看到，且走的是同一写入函数。
+- `src/api/tests.rs` 补接口功能测试（临时库），至少覆盖：登录成功 204、密码错 401、没设密码 409、第 11 次失败 429；无 Cookie、签名被改、已过期 401，超过 1 天的 Cookie 被续期；改密码后旧 Cookie 401、新 Cookie 可用；`/api/*` 带 Bearer 401；跨站写请求 403；记一笔三种类型和各自的 400；改类型的规则；PATCH 的 `null` 与不出现；删除后再删 404；平账的差额和差额为 0；账户重名、在用、最后一个不能删；`move` 后顺序；`/step` 确认后 `GET /api/entries` 能看到，且走的是同一写入函数。
 - 用 curl 在本地跑一遍每个接口，贴出请求和响应样例给前端。
 - `cargo fmt`、`cargo clippy --all-targets -- -D warnings`、`cargo test`。
 - 改完把本文状态改成「已实现（日期）」，[请求记录进库](request-log.md) 同步 §2.5。
@@ -340,6 +383,6 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 - `lib/store.svelte.ts` 里的写入函数（`addEntry`、`update`、`remove`、`saveAccount`、`removeAccount`、`moveAccount`、`setPrefs`）改成调接口，以响应为准；页面不改。
 - 加一个 `lib/api.ts`：相对路径、带 Cookie、统一处理 §2.4 的错误（401 回登录、409 重取目录）。
 - 账目按自然年缓存，见头脑风暴「账目按需取」；余额改用 §3.3。
-- 加登录页（一个 token 输入框）；设置页加「退出登录」，「更新」先只显示版本号。
+- 加登录页（用户名、密码）；设置页加「修改密码」「退出登录」，「更新」先只显示版本号。
 - 记账周期和预算从 `localStorage` 改成 §3.5 / §7；主题、隐藏金额仍留在浏览器。
-- 原型的假数据改成 `web/mock/` 下按本契约实现的内存假后端，只在 `bun run demo`（`vite --mode mock`）时挂上，不进生产包；`bun run dev` 代理到本机 `127.0.0.1:8730`。登录口令 `demo`。
+- 原型的假数据改成 `web/mock/` 下按本契约实现的内存假后端，只在 `bun run demo`（`vite --mode mock`）时挂上，不进生产包；`bun run dev` 代理到本机 `127.0.0.1:8730`。登录用 `dzmfg` / `demo`。

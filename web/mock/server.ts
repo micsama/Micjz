@@ -1,10 +1,10 @@
 // 假后端：照 docs/blueprints/web-api.md 在内存里实现 /api，`bun run demo` 不连真服务器时用。
-// 只为前端开发和截图验收，规则按契约写但不求穷尽；以真后端为准。登录口令是 demo。
+// 只为前端开发和截图验收，规则按契约写但不求穷尽；以真后端为准。登录用 dzmfg / demo。
 import type { Account, Catalog, Entry, FlowKind, Kind } from "../src/lib/types";
 import { effect } from "../src/lib/kinds";
 import { CATALOG, seed, stamp, type Shot } from "./seed";
 
-const TOKEN = "demo";
+const USER = "dzmfg";
 const MAX = 99_999_999_999;
 
 class Fail extends Error {
@@ -25,6 +25,10 @@ export function createMock(): (req: Request) => Promise<Response | null> {
   let entries: Entry[] = data.entries;
   const shots: Record<string, Shot> = data.recognitions;
   const settings = { cycle_day: 1, budget_cents: 300000 as number | null };
+  // 会话：Cookie 值是「第几代密码」，改密码换代，旧 Cookie 失效（真后端是签名，效果一样）。
+  let password = "demo";
+  let generation = 1;
+  const session = () => ({ "Set-Cookie": `micjz_session=${generation}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000` });
 
   const time = (s: unknown) => {
     const t = typeof s === "string" ? Date.parse(s) : NaN;
@@ -92,7 +96,14 @@ export function createMock(): (req: Request) => Promise<Response | null> {
     const key = `${method} ${head}${id === undefined ? "" : "/:id"}${sub ? `/${sub}` : ""}`;
     switch (key) {
       case "POST logout":
-        return json(204, undefined, { "Set-Cookie": "micjz=; Max-Age=0; Path=/" });
+        return json(204, undefined, { "Set-Cookie": "micjz_session=; Max-Age=0; Path=/" });
+      case "PUT password": {
+        if (b.current !== password) throw new Fail(400, "当前密码不正确");
+        if (typeof b.new !== "string" || [...b.new].length < 8) throw new Fail(400, "新密码至少 8 位");
+        password = b.new;
+        generation += 1;
+        return json(204, undefined, session());
+      }
       case "GET catalog":
         return json(200, catalog);
       case "GET entries": {
@@ -231,11 +242,11 @@ export function createMock(): (req: Request) => Promise<Response | null> {
     try {
       const b = req.method === "GET" || req.method === "DELETE" ? {} : await req.json().catch(() => ({}));
       if (path[0] === "login" && req.method === "POST") {
-        if (b.token !== TOKEN) throw new Fail(401, "口令不对");
-        return json(204, undefined, { "Set-Cookie": `micjz=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
+        if (b.username !== USER || b.password !== password) throw new Fail(401, "用户名或密码不正确");
+        return json(204, undefined, session());
       }
       const cookie = req.headers.get("cookie") ?? "";
-      if (!cookie.split(/;\s*/).includes(`micjz=${TOKEN}`) && req.headers.get("authorization") !== `Bearer ${TOKEN}`) throw new Fail(401, "请先登录");
+      if (!cookie.split(/;\s*/).includes(`micjz_session=${generation}`)) throw new Fail(401, "未登录或登录已过期");
       return await route(req.method, path, url.searchParams, b);
     } catch (e) {
       if (e instanceof Fail) return json(e.status, { error: e.message });

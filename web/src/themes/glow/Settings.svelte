@@ -3,6 +3,7 @@
   import Sheet from "../../ui/Sheet.svelte";
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import PrefEditor from "../../ui/PrefEditor.svelte";
+  import PasswordEditor from "../../ui/PasswordEditor.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { logout, settings } from "../../lib/store.svelte";
   import { EXPORT_URL } from "../../lib/api";
@@ -11,7 +12,7 @@
   import { THEMES } from "../index";
 
   let collapsed = $state(false);
-  let editing = $state<"cycle" | "budget" | null>(null);
+  let editing = $state<"cycle" | "budget" | "password" | null>(null);
   let leaving = $state(false);
 </script>
 
@@ -81,6 +82,22 @@
     </div>
   </div>
 
+  <h3 class="cap">账号</h3>
+  <div class="group">
+    <button
+      class="row"
+      onclick={() => {
+        holdKeyboard();
+        editing = "password";
+      }}
+    >
+      <span class="fi" style:--fc="var(--c4)"><Icon name="lock" size={18} weight={2.2} /></span>
+      <span class="label">修改密码</span>
+      <span class="value"></span>
+      <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+    </button>
+  </div>
+
   <div class="group out">
     <button class="row center" onclick={() => (leaving = true)}>退出登录</button>
   </div>
@@ -89,13 +106,16 @@
 
 <ActionSheet
   open={leaving}
-  title="退出后这台设备要重新输入 token"
+  title="退出后这台设备要重新输入密码"
   actions={[{ label: "退出登录", danger: true, run: logout }]}
   oncancel={() => (leaving = false)}
 />
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
-  {#if editing}<PrefEditor which={editing} onclose={() => (editing = null)} />{/if}
+  {#if editing === "password"}<PasswordEditor onclose={() => (editing = null)} />{:else if editing}<PrefEditor
+      which={editing}
+      onclose={() => (editing = null)}
+    />{/if}
 </Sheet>
 
 <style>

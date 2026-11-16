@@ -50,8 +50,9 @@ export type AccountInput = Omit<Account, "id">;
 const enc = encodeURIComponent;
 
 export const api = {
-  login: (token: string) => call<void>("POST", "login", { token }),
+  login: (username: string, password: string) => call<void>("POST", "login", { username, password }),
   logout: () => call<void>("POST", "logout"),
+  changePassword: (current: string, next: string) => call<void>("PUT", "password", { current, new: next }),
 
   catalog: () => call<Catalog>("GET", "catalog"),
   entries: (from: Date, to: Date) =>

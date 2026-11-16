@@ -115,12 +115,22 @@ export async function boot() {
   if (app.phase === "loading") app.phase = "ready";
 }
 
-/** 登录成功返回空，失败返回给人看的原因。 */
-export async function login(token: string): Promise<string | null> {
-  const r = await attempt(api.login(token));
-  if (r instanceof ApiError) return r.status === 401 ? "口令不对" : r.message;
+/** 登录成功返回空，失败返回给人看的原因。登录的 401、409 是表单上的错，不走 `attempt` 的回登录页、重取目录。 */
+export async function login(username: string, password: string): Promise<string | null> {
+  try {
+    await api.login(username, password);
+  } catch (e) {
+    if (e instanceof ApiError) return e.message;
+    throw e;
+  }
   await boot();
   return null;
+}
+
+/** 改密码：成功返回空；其他设备随之下线，这台换了新 Cookie 继续用。 */
+export async function changePassword(current: string, next: string): Promise<string | null> {
+  const r = await attempt(api.changePassword(current, next));
+  return r instanceof ApiError ? r.message : null;
 }
 
 /** 不管服务器那边成没成，都重新打开：Cookie 清掉了就回到登录页。 */

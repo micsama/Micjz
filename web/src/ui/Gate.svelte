@@ -1,9 +1,10 @@
 <script lang="ts">
-  // 进页面之前的一屏：取数据中、登录（输入 config.toml 里的 token）、连不上时重试。
+  // 进页面之前的一屏：取数据中、登录、连不上时重试。
   import { onMount, tick } from "svelte";
   import { app, boot, login } from "../lib/store.svelte";
 
-  let token = $state("");
+  let username = $state("");
+  let password = $state("");
   let error = $state("");
   let busy = $state(false);
   let input = $state<HTMLInputElement>();
@@ -13,11 +14,13 @@
     input?.focus();
   });
 
+  const ready = $derived(!!username.trim() && !!password);
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!token.trim() || busy) return;
+    if (!ready || busy) return;
     busy = true;
-    error = (await login(token.trim())) ?? "";
+    error = (await login(username.trim(), password)) ?? "";
     busy = false;
   }
 </script>
@@ -26,20 +29,23 @@
   <div class="mark">¥</div>
   {#if app.phase === "login"}
     <h1>登录记账</h1>
-    <p>输入服务器 config.toml 里的 token，这台设备一年内不用再登。</p>
+    <p>30 天内打开过就不用再登。</p>
     <form onsubmit={submit}>
-      <input
-        bind:this={input}
-        bind:value={token}
-        type="password"
-        autocomplete="current-password"
-        placeholder="token"
-        aria-label="token"
-        class:bad={error}
-        oninput={() => (error = "")}
-      />
+      <div class="fields" class:bad={error}>
+        <input
+          bind:this={input}
+          bind:value={username}
+          autocomplete="username"
+          autocapitalize="off"
+          spellcheck={false}
+          placeholder="用户名"
+          aria-label="用户名"
+          oninput={() => (error = "")}
+        />
+        <input bind:value={password} type="password" autocomplete="current-password" placeholder="密码" aria-label="密码" oninput={() => (error = "")} />
+      </div>
       {#if error}<p class="err">{error}</p>{/if}
-      <button disabled={!token.trim() || busy}>{busy ? "登录中…" : "登录"}</button>
+      <button disabled={!ready || busy}>{busy ? "登录中…" : "登录"}</button>
     </form>
   {:else if app.phase === "failed"}
     <h1>没取到数据</h1>
@@ -99,30 +105,37 @@
     max-width: 320px;
     margin-top: 22px;
   }
-  input {
-    height: 48px;
-    padding: 0 16px;
-    border: 0;
+  .fields {
+    display: grid;
     border-radius: 12px;
+    overflow: hidden;
     background: var(--card);
-    color: var(--label);
-    font: inherit;
-    text-align: center;
     box-shadow:
       var(--shadow-card),
       0 0 0 1.5px transparent;
-    outline: none;
     transition: box-shadow 0.2s;
   }
-  input:focus {
+  .fields:focus-within {
     box-shadow:
       var(--shadow-card),
       0 0 0 1.5px var(--tint);
   }
-  input.bad {
+  .fields.bad {
     box-shadow:
       var(--shadow-card),
       0 0 0 1.5px var(--red);
+  }
+  input {
+    height: 48px;
+    padding: 0 16px;
+    border: 0;
+    background: none;
+    color: var(--label);
+    font: inherit;
+    outline: none;
+  }
+  input + input {
+    border-top: 0.5px solid var(--sep);
   }
   .err {
     color: var(--red);
