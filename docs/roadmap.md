@@ -78,6 +78,7 @@ accounts     (id, position, name, card_type, card_number)   卡号完整存，�
 tags         (id, name)
 recognitions (draft_id, ...)   一次识别的输入输出和原始草稿；entries.id 指向它
 requests     (id, at, ...)     通过鉴权的请求日志
+settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期、每期预算
 ```
 
 完整表结构见 [表结构梳理](blueprints/single-source.md)：每个事实只存一处，表之间用外键连。
@@ -115,8 +116,9 @@ requests     (id, at, ...)     通过鉴权的请求日志
 
 ### v2 能看能改
 
-- 极简网页：按月列表、编辑、删除、CSV 导出。
+- 极简网页：按记账周期列表、编辑、删除、CSV 导出。交互原型在 `web/`（假数据）。
 - 分类、账户、标签的网页管理（已在 SQLite，目前用命令行）。
+- B1 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
 
 ### v3 简单统计
 

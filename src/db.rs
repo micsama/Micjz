@@ -1,5 +1,5 @@
 //! SQLite：`entries`/`entry_tags` 是最终账目，引用 `categories`/`accounts`/`tags`；
-//! `recognitions` 留存每次识别的输入输出。
+//! `recognitions` 留存每次识别的输入输出；`settings` 是单行的用户设置。
 //! 只认当前表结构（新库直接建）；旧库由 `./build.sh` 调 `deploy/db/convert.py` 转换。
 
 use std::{
@@ -96,6 +96,14 @@ CREATE TABLE requests (
   error      TEXT
 );
 CREATE INDEX idx_requests_draft ON requests(draft_id);
+
+-- 用户设置，恒为一行，每个设置一列。周期从 cycle_day 号起；预算为空是不设。
+CREATE TABLE settings (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  cycle_day    INTEGER NOT NULL DEFAULT 1 CHECK (cycle_day BETWEEN 1 AND 28),
+  budget_cents INTEGER CHECK (budget_cents > 0)
+);
+INSERT INTO settings (id) VALUES (1);
 ";
 
 /// 当前表结构版本，存在库的 `PRAGMA user_version`；`deploy/db/convert.py` 也读这个文件。
