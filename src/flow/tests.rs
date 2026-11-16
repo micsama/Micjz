@@ -58,7 +58,7 @@ fn menu_summary() {
 #[test]
 fn confirm_returns_draft() {
     let d = draft();
-    match step(d.clone(), "action", "确认", now()).unwrap() {
+    match step(d.clone(), "action", "✅ 确认记账", now()).unwrap() {
         Outcome::Confirm(got) => assert_eq!(got, d),
         Outcome::Reply(_) => panic!("应当确认"),
     }
@@ -66,25 +66,25 @@ fn confirm_returns_draft() {
 
 #[test]
 fn two_level_category() {
-    let r = reply(draft(), "action", "改分类");
+    let r = reply(draft(), "action", "🗂️ 分类 · 餐饮 / 咖啡饮品");
     assert_eq!(r.field, "category");
     assert!(r.options.contains(&"🗂️ 交通".to_owned()));
 
-    let r = reply(decoded(&r), "category", "交通");
+    let r = reply(decoded(&r), "category", "🗂️ 交通");
     assert_eq!(r.field, "subcategory");
     assert_eq!(decoded(&r).subcategory, None);
 
-    let r = reply(decoded(&r), "subcategory", "打车");
+    let r = reply(decoded(&r), "subcategory", "📂 打车");
     assert_eq!(r.field, "action");
     assert!(r.options.contains(&"🗂️ 分类 · 交通 / 打车".to_owned()));
 
-    let r = reply(decoded(&r), "category", OTHER);
+    let r = reply(decoded(&r), "category", "🗂️ 其他");
     assert_eq!(r.field, "action", "无二级直接回主菜单");
 }
 
 #[test]
 fn amount_input() {
-    let r = reply(draft(), "action", "改金额");
+    let r = reply(draft(), "action", "💰 金额 · 32.50");
     assert_eq!((r.step, r.default.as_str()), (StepType::Number, "32.50"));
 
     let r = reply(decoded(&r), "amount", "18.5");
@@ -102,7 +102,7 @@ fn amount_input() {
 
 #[test]
 fn tags_replace_and_clear() {
-    let r = reply(draft(), "tags", "恋爱");
+    let r = reply(draft(), "tags", "🏷️ 恋爱");
     assert_eq!(decoded(&r).tags, vec!["恋爱"]);
     assert!(r.options.contains(&"🏷️ 标签 · 恋爱".to_owned()));
 
@@ -114,7 +114,7 @@ fn tags_replace_and_clear() {
 
 #[test]
 fn switch_kind_resets_category() {
-    let r = reply(draft(), "kind", "收入");
+    let r = reply(draft(), "kind", "↗️ 收入");
     assert_eq!(r.field, "category");
     let d = decoded(&r);
     assert_eq!(
@@ -122,7 +122,7 @@ fn switch_kind_resets_category() {
         (Kind::Income, OTHER, None)
     );
 
-    let r = reply(draft(), "kind", "支出");
+    let r = reply(draft(), "kind", "↘️ 支出");
     assert_eq!(r.field, "action", "未变化直接回主菜单");
 }
 
@@ -198,9 +198,6 @@ fn warnings_are_not_displayed() {
     let mut d = draft();
     d.warnings.push("默认时间警告".to_owned());
     assert!(menu(&d, now()).summary.is_empty());
-    let r = reply(d, "action", "更多");
+    let r = reply(d, "action", "💰 金额 · 32.50");
     assert!(!r.summary.contains("默认时间警告"));
-    for option in r.options.clone() {
-        reply(decoded(&r), "more", &option);
-    }
 }

@@ -43,6 +43,8 @@ pub struct Meta {
     pub elapsed_ms: u64,
     /// 模型的原始 content；调用失败时是错误正文。
     pub raw: String,
+    pub prompt: String,
+    pub parameters: String,
 }
 
 pub struct Recognized {
@@ -81,6 +83,18 @@ impl Recognizer {
 
     pub async fn recognize(&self, image: &[u8], now: DateTime<FixedOffset>) -> Recognized {
         let started = Instant::now();
+        if mime(image).is_none() {
+            return Recognized {
+                result: Err(RecognizeError::UnsupportedImage),
+                meta: Meta {
+                    model: "unsupported".into(),
+                    elapsed_ms: 0,
+                    raw: String::new(),
+                    prompt: prompt(now),
+                    parameters: parameters(),
+                },
+            };
+        }
         let deepseek = match self {
             Recognizer::DeepSeek(d) => d,
             Recognizer::Mock => {
@@ -90,6 +104,8 @@ impl Recognizer {
                         model: "mock".to_owned(),
                         elapsed_ms: 0,
                         raw: String::new(),
+                        prompt: prompt(now),
+                        parameters: parameters(),
                     },
                 };
             }
@@ -103,9 +119,9 @@ impl Recognizer {
                     let raw = err.to_string();
                     (Err(err), raw)
                 }
-                Ok((output, raw)) => {
-                    tracing::info!(raw = %raw, "模型返回");
-                    (build_draft(output, now), raw)
+                Ok(raw) => {
+                    let result = parse_response(&raw).and_then(|output| build_draft(output, now));
+                    (result, raw)
                 }
             },
         };
@@ -117,6 +133,8 @@ impl Recognizer {
                 model: deepseek.model.clone(),
                 elapsed_ms,
                 raw,
+                prompt: prompt(now),
+                parameters: parameters(),
             },
         }
     }
@@ -128,7 +146,7 @@ impl DeepSeek {
         image: &[u8],
         mime: &str,
         now: DateTime<FixedOffset>,
-    ) -> anyhow::Result<(Output, String)> {
+    ) -> anyhow::Result<String> {
         let body = json!({
             "model": self.model,
             "messages": [
@@ -158,21 +176,19 @@ impl DeepSeek {
         let text = resp.text().await.context("读取 DeepSeek 响应")?;
         anyhow::ensure!(status.is_success(), "DeepSeek 返回 {status}：{text}");
 
-        let resp: Value = serde_json::from_str(&text).context("解析 DeepSeek 响应")?;
-        if let Some(usage) = resp.get("usage") {
-            tracing::info!(
-                prompt_tokens = usage["prompt_tokens"].as_u64(),
-                completion_tokens = usage["completion_tokens"].as_u64(),
-                "DeepSeek 用量"
-            );
-        }
+        Ok(text)
+    }
+}
+
+fn parse_response(text: &str) -> Result<Output, RecognizeError> {
+    (|| -> anyhow::Result<Output> {
+        let resp: Value = serde_json::from_str(text).context("解析 DeepSeek 响应")?;
         let content = resp["choices"][0]["message"]["content"]
             .as_str()
             .context("DeepSeek 响应缺少 content")?;
-        let parsed = serde_json::from_str(content)
-            .with_context(|| format!("模型输出不是约定的 JSON：{content}"))?;
-        Ok((parsed, content.to_owned()))
-    }
+        serde_json::from_str(content).context("模型输出不是约定的 JSON")
+    })()
+    .map_err(RecognizeError::Upstream)
 }
 
 /// 模型输出；字段一律可空，由 `build_draft` 决定取舍。
@@ -186,7 +202,6 @@ struct Output {
     account: Option<String>,
     occurred_at: Option<String>,
     category: Option<String>,
-    subcategory: Option<String>,
 }
 
 fn build_draft(out: Output, now: DateTime<FixedOffset>) -> Result<Draft, RecognizeError> {
@@ -205,41 +220,36 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>) -> Result<Draft, Recogni
         _ => Kind::Expense,
     };
 
-    let mut warnings = Vec::new();
-    let category = out
-        .category
-        .as_deref()
-        .and_then(|name| catalog::category(kind, name));
-    let (category, subcategory) = match category {
-        Some(c) => (
-            c.name.to_owned(),
-            out.subcategory.filter(|s| c.subs.contains(&s.as_str())),
-        ),
-        None => {
-            warnings.push("分类未识别，已设为其他".to_owned());
-            (OTHER.to_owned(), None)
-        }
+    let (category, subcategory) = match out.category.as_deref() {
+        Some(key) => catalog::model_category(kind, key)
+            .ok_or_else(|| RecognizeError::Upstream(anyhow::anyhow!("模型分类 key 无效")))?,
+        None => (OTHER, None),
     };
-    let occurred_at = match out.occurred_at.as_deref().and_then(parse_local_time) {
-        Some(at) => at,
-        None => {
-            warnings.push("未看到交易时间，已用当前时间".to_owned());
-            now
+    let occurred_at = match out.occurred_at.as_deref() {
+        Some(s) => {
+            let at = parse_local_time(s)
+                .ok_or_else(|| RecognizeError::Upstream(anyhow::anyhow!("模型时间无效")))?;
+            if (at - now).num_seconds().abs() > 1800 {
+                at
+            } else {
+                now
+            }
         }
+        None => now,
     };
 
     Ok(Draft {
         id: uuid::Uuid::now_v7().to_string(),
         kind,
         amount_cents,
-        category,
-        subcategory,
+        category: category.to_owned(),
+        subcategory: subcategory.map(str::to_owned),
         account: out.account.filter(|a| ACCOUNTS.contains(&a.as_str())),
         merchant: out.merchant.as_deref().and_then(flow::non_empty),
         occurred_at,
         note: None,
         tags: Vec::new(),
-        warnings,
+        warnings: Vec::new(),
     })
 }
 
@@ -255,7 +265,7 @@ fn mock_draft(now: DateTime<FixedOffset>) -> Draft {
         occurred_at: now,
         note: None,
         tags: Vec::new(),
-        warnings: vec!["mock 识别：假账单".to_owned()],
+        warnings: Vec::new(),
     }
 }
 
@@ -276,48 +286,49 @@ fn mime(image: &[u8]) -> Option<&'static str> {
     }
 }
 
+static PROMPT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+pub fn init_prompt() -> anyhow::Result<()> {
+    let text = std::fs::read_to_string("prompt.txt")?;
+    anyhow::ensure!(
+        text.contains("{now}") && text.contains("{categories}") && text.contains("{accounts}"),
+        "prompt 须包含 now/categories/accounts 占位符"
+    );
+    let _ = PROMPT.set(text);
+    Ok(())
+}
+fn parameters() -> String {
+    json!({"response_format":{"type":"json_object"},"reasoning_effort":"none","temperature":0,"max_tokens":500,"stream":false}).to_string()
+}
 fn prompt(now: DateTime<FixedOffset>) -> String {
-    let list = |kind| {
-        catalog::categories(kind)
-            .iter()
-            .map(|c| {
-                if c.subs.is_empty() {
-                    format!("- {}", c.name)
-                } else {
-                    format!("- {}：{}", c.name, c.subs.join("、"))
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    format!(
-        r#"你是记账助手，从手机支付截图中提取一笔交易，只输出 JSON。
-
-当前时间：{now}（北京时间）
-
-输出格式：
-{{"ok": true, "reason": null, "kind": "expense", "amount": "32.50", "merchant": "瑞幸咖啡", "account": "微信", "occurred_at": "2026-11-16 13:42", "category": "餐饮", "subcategory": "咖啡饮品"}}
-
-规则：
-1. 截图里看不到的字段填 null，不许猜测或编造。
-2. ok：是支付成功页、账单详情页或收款到账页填 true；否则填 false，并在 reason 用一句中文说明。
-3. kind：付钱是 "expense"，收钱（收款、退款到账、红包收入）是 "income"。
-4. amount：实际付款或到账金额，字符串，单位元。有多个金额时取实付金额，不取原价、优惠、余额。
-5. merchant：商家或对方名称。
-6. account：只能是 {accounts} 之一；用微信付的填 "微信"，银行卡付的填 "银行卡"，看不出填 null。
-7. occurred_at：交易时间，格式 "YYYY-MM-DD HH:MM"；截图没写年份按当前年份。
-8. category / subcategory：只能从下面列表选；没有合适的二级分类，subcategory 填 null。
-
-支出分类：
-{expense}
-
-收入分类（无二级）：
-{income}"#,
-        now = now.format("%Y-%m-%d %H:%M"),
-        accounts = ACCOUNTS.join(" / "),
-        expense = list(Kind::Expense),
-        income = list(Kind::Income),
-    )
+    let list = [Kind::Expense, Kind::Income]
+        .into_iter()
+        .map(|kind| {
+            let rows = catalog::categories(kind)
+                .iter()
+                .flat_map(|c| {
+                    c.keys.iter().enumerate().map(move |(i, key)| {
+                        format!(
+                            "{key}: {}{}",
+                            c.name,
+                            c.subs.get(i).map(|s| format!("/{s}")).unwrap_or_default()
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{kind:?}:\n{rows}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if PROMPT.get().is_none() {
+        init_prompt().expect("prompt 配置有效");
+    }
+    PROMPT
+        .get()
+        .expect("已加载 prompt")
+        .replace("{now}", &now.format("%Y-%m-%d %H:%M:%S").to_string())
+        .replace("{categories}", &list)
+        .replace("{accounts}", &ACCOUNTS.join(" / "))
 }
 
 #[cfg(test)]

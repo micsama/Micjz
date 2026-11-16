@@ -67,9 +67,9 @@ struct ApiError(StatusCode, String);
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         if self.0.is_server_error() {
-            tracing::error!(status = self.0.as_u16(), message = %self.1, "请求失败");
+            tracing::error!(status = self.0.as_u16(), reason = %self.1, "请求失败");
         } else {
-            tracing::warn!(status = self.0.as_u16(), message = %self.1, "请求失败");
+            tracing::warn!(status = self.0.as_u16(), reason = %self.1, "请求失败");
         }
         (self.0, Json(Reply::done(self.1))).into_response()
     }
@@ -95,6 +95,7 @@ async fn recognize_handler(
     State(state): State<Arc<AppState>>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<Json<Reply>, ApiError> {
+    let started = Instant::now();
     let mut multipart = multipart.map_err(|e| bad_request(e.body_text()))?;
     let (mut image, mut names) = (None, Vec::new());
     while let Some(field) = multipart.next_field().await.map_err(bad_request)? {
@@ -105,6 +106,18 @@ async fn recognize_handler(
         names.push(name);
     }
     let image = image.ok_or_else(|| bad_request(format!("缺少 image，收到字段 {names:?}")))?;
+    let upload_ms = started.elapsed().as_millis() as u64;
+    let saving = Instant::now();
+    let decoded =
+        image::load_from_memory(&image).map_err(|e| bad_request(format!("图片无法解码：{e}")))?;
+    let image_path = save_image(&state.db.1, &image, &decoded).map_err(|e| {
+        tracing::error!(error = %e, "图片解码或保存失败");
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "图片无法解码或保存".into(),
+        )
+    })?;
+    let image_ms = saving.elapsed().as_millis() as u64;
     let now = flow::now();
     let sha = sha256_hex(&image);
     let recognized = state.recognizer.recognize(&image, now).await;
@@ -117,8 +130,8 @@ async fn recognize_handler(
         Ok(draft) => ("ok", None, Some(draft)),
         Err(e) => (e.outcome(), Some(e.to_string()), None),
     };
-    // 留痕失败不影响记账，只记日志。
-    if let Err(e) = state.db.record_recognition(&Recognition {
+    let db_started = Instant::now();
+    state.db.record_recognition(&Recognition {
         draft_id: &draft_id,
         outcome,
         model: &meta.model,
@@ -128,9 +141,22 @@ async fn recognize_handler(
         raw: &meta.raw,
         reason: reason.as_deref(),
         origin,
-    }) {
-        tracing::warn!(error = ?e, "识别留痕失败");
-    }
+        image_path: &image_path,
+        prompt: &meta.prompt,
+        parameters: &meta.parameters,
+        timings: &serde_json::json!({"upload_ms":upload_ms,"image_ms":image_ms,"model_ms":meta.elapsed_ms}).to_string(),
+    }).map_err(|e| {
+        tracing::error!(error = %e, "保存识别记录失败");
+        ApiError(StatusCode::INTERNAL_SERVER_ERROR, "保存识别记录失败".into())
+    })?;
+    tracing::info!(
+        upload_ms,
+        image_ms,
+        model_ms = meta.elapsed_ms,
+        db_ms = db_started.elapsed().as_millis() as u64,
+        total_ms = started.elapsed().as_millis() as u64,
+        "识别阶段耗时"
+    );
     match recognized.result {
         Ok(draft) => {
             tracing::info!(id = %draft.id, bytes = image.len(), "识别完成");
@@ -168,50 +194,60 @@ async fn step_handler(
 ) -> Result<Json<Reply>, ApiError> {
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
     let before = Draft::decode(&req.draft).map_err(bad_request)?;
-    // value 可能是备注等账单内容，不记。
     tracing::info!(id = %before.id, field = %req.field, "步骤");
-    match flow::step(before.clone(), &req.field, &req.value, flow::now()).map_err(bad_request)? {
+    match flow::step(before, &req.field, &req.value, flow::now()).map_err(bad_request)? {
         Outcome::Reply(reply) => {
             tracing::info!(next = ?reply.step, field = %reply.field, "下一步");
-            // 下一步带回来的草稿就是改完之后的样子，和进这一轮前的比对留痕。
-            if let Ok(after) = Draft::decode(&reply.draft) {
-                log_edits(&state.db, &before, &after);
-            }
             Ok(Json(reply))
         }
-        Outcome::Confirm(draft) => {
-            log_edits(&state.db, &before, &draft);
-            match state.db.save(&draft) {
-                Ok(inserted) => {
-                    tracing::info!(id = %draft.id, inserted, "入账");
-                    if let Err(e) = state.db.mark_confirmed(&draft.id) {
-                        tracing::warn!(error = ?e, "确认留痕失败");
-                    }
-                    Ok(Json(Reply::done(flow::saved_message(&draft))))
-                }
-                Err(e) => {
-                    tracing::error!(id = %draft.id, error = ?e, "入账失败");
-                    Err(ApiError(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("入账失败，未记账：{e}"),
-                    ))
-                }
+        Outcome::Confirm(draft) => match state.db.save(&draft) {
+            Ok(inserted) => {
+                tracing::info!(id = %draft.id, inserted, "入账");
+                Ok(Json(Reply::done(flow::saved_message(&draft))))
             }
-        }
-    }
-}
-
-/// 本轮改动了哪些字段，写进 `edits`。
-fn log_edits(db: &Db, before: &Draft, after: &Draft) {
-    let edits = crate::db::diff(before, after);
-    if edits.is_empty() {
-        return;
-    }
-    tracing::info!(id = %after.id, fields = ?edits.iter().map(|e| e.field.as_str()).collect::<Vec<_>>(), "纠正留痕");
-    if let Err(e) = db.record_edits(&after.id, &edits) {
-        tracing::warn!(error = ?e, "纠正留痕失败");
+            Err(e) => {
+                tracing::error!(id = %draft.id, error = ?e, "入账失败");
+                Err(ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("入账失败，未记账：{e}"),
+                ))
+            }
+        },
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+fn save_image(
+    dir: &std::path::Path,
+    bytes: &[u8],
+    image: &image::DynamicImage,
+) -> anyhow::Result<String> {
+    use image::ImageEncoder;
+    let mut encoded = Vec::new();
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut encoded,
+        image::codecs::png::CompressionType::Best,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(
+        image.as_bytes(),
+        image.width(),
+        image.height(),
+        image.color().into(),
+    )?;
+    let (data, ext) = if encoded.len() < bytes.len() {
+        (encoded.as_slice(), "png")
+    } else if bytes.starts_with(b"\x89PNG") {
+        (bytes, "png")
+    } else {
+        (bytes, "jpg")
+    };
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(format!("{}.{}", sha256_hex(bytes), ext));
+    if !path.exists() {
+        std::fs::write(&path, data)?;
+    }
+    Ok(path.to_string_lossy().into_owned())
+}

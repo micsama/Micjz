@@ -6,7 +6,7 @@ use super::*;
 use crate::recognize::Recognizer;
 
 const TOKEN: &str = "test-token";
-const PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+const PNG: &[u8] = include_bytes!("test.png");
 
 struct Server {
     base: String,
@@ -115,31 +115,43 @@ async fn recognize_then_confirm_saves_once() {
     assert_shape(&menu);
     assert_eq!(menu["type"], "choose");
     assert_eq!(menu["field"], "action");
-    assert_eq!(menu["options"][0], "确认");
+    assert_eq!(
+        menu["options"].as_array().unwrap().last().unwrap(),
+        "✅ 确认记账"
+    );
+    assert_eq!(menu["summary"], "");
 
-    let (status, done) = s.step(&menu, "确认").await;
+    let (status, done) = s.step(&menu, "✅ 确认记账").await;
     assert_eq!(status, 200);
     assert_done(&done, "已记账");
     // 重复确认同一草稿：仍是「已记账」，库里只有一条。
-    let (_, again) = s.step(&menu, "确认").await;
+    let (_, again) = s.step(&menu, "✅ 确认记账").await;
     assert_done(&again, "已记账");
     assert_eq!(s.count("SELECT COUNT(*) FROM entries"), 1);
+    assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.draft_id=r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%' AND r.origin IS NOT NULL AND r.confirmed_at IS NOT NULL"), 1);
+    let conn = rusqlite::Connection::open(&s.db_path).unwrap();
+    let path: String = conn
+        .query_row("SELECT image_path FROM recognitions LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(std::path::Path::new(&path).exists());
 }
 
 #[tokio::test]
 async fn edit_category_and_tags_before_confirm() {
     let s = server().await;
     let (_, menu) = s.recognize("image", PNG).await;
-    let (_, cats) = s.step(&menu, "改分类").await;
+    let (_, cats) = s.step(&menu, menu["options"][2].as_str().unwrap()).await;
     assert_eq!(cats["field"], "category");
-    let (_, subs) = s.step(&cats, "交通").await;
+    let (_, subs) = s.step(&cats, "🗂️ 交通").await;
     assert_eq!(subs["field"], "subcategory");
-    let (_, menu) = s.step(&subs, "打车").await;
-    assert!(menu["summary"].as_str().unwrap().contains("交通/打车"));
-    let (_, tags) = s.step(&menu, "加标签").await;
+    let (_, menu) = s.step(&subs, "📂 打车").await;
+    assert!(menu["options"][2].as_str().unwrap().contains("交通 / 打车"));
+    let (_, tags) = s.step(&menu, menu["options"][6].as_str().unwrap()).await;
     assert_eq!(tags["type"], "choose_many");
-    let (_, menu) = s.step(&tags, "恋爱").await;
-    let (_, done) = s.step(&menu, "确认").await;
+    let (_, menu) = s.step(&tags, "🏷️ 恋爱").await;
+    let (_, done) = s.step(&menu, "✅ 确认记账").await;
     assert_done(&done, "交通/打车");
     assert_eq!(
         s.count("SELECT COUNT(*) FROM entry_tags WHERE tag = '恋爱'"),
@@ -173,8 +185,8 @@ async fn errors_are_json_done() {
     assert_done(&v, "缺少 image");
 
     let (status, v) = s.recognize("image", b"not an image").await;
-    assert_eq!(status, 200);
-    assert_done(&v, "图片格式不支持");
+    assert_eq!(status, 400);
+    assert_done(&v, "图片无法解码");
 
     let (status, v) = s
         .send(s.http.post(url("/step")).bearer_auth(TOKEN).body("{"))

@@ -157,7 +157,6 @@ pub enum Outcome {
 }
 
 const CONFIRM: &str = "确认";
-const MORE: &[&str] = &["🏪 商家", "🕒 时间", "📝 备注", "↔️ 收支类型"];
 const ACTIONS: &[&str] = &[
     "改金额",
     "收支类型",
@@ -202,12 +201,12 @@ fn decorated<'a>(values: impl IntoIterator<Item = &'a str>, emoji: &str) -> Vec<
     values.into_iter().map(|v| format!("{emoji} {v}")).collect()
 }
 
-// 仅接受当前选项的完整展示文本或旧版纯值，不剥离任意前缀。
+// 展示值只在交互边界映射成干净的数据值。
 fn choice<'a>(value: &'a str, values: &[&'a str], emoji: &str) -> Option<&'a str> {
     values
         .iter()
         .copied()
-        .find(|v| value == *v || value == format!("{emoji} {v}"))
+        .find(|v| value == format!("{emoji} {v}"))
 }
 
 pub fn saved_message(draft: &Draft) -> String {
@@ -236,7 +235,7 @@ pub fn step(
             .iter()
             .position(|option| option == value)
             .map(|index| ACTIONS[index])
-            .unwrap_or(value)
+            .ok_or_else(invalid)?
     } else {
         value
     };
@@ -251,26 +250,17 @@ pub fn step(
                 .options(decorated(ACCOUNTS.iter().copied(), "💳")),
             "加标签" => ask(&draft, StepType::ChooseMany, "tags")
                 .options(decorated(TAGS.iter().copied(), "🏷️")),
-            "商家" | "时间" | "备注" | "收支类型" => {
-                return step(draft, "more", value, now);
+            "商家" => ask(&draft, StepType::Text, "merchant")
+                .default(draft.merchant.clone().unwrap_or_default()),
+            "时间" => {
+                ask(&draft, StepType::Date, "occurred_at").default(draft.occurred_at.to_rfc3339())
             }
-            "更多" => ask(&draft, StepType::Choose, "more").options(MORE),
+            "备注" => {
+                ask(&draft, StepType::Text, "note").default(draft.note.clone().unwrap_or_default())
+            }
+            "收支类型" => ask(&draft, StepType::Choose, "kind").options(["↘️ 支出", "↗️ 收入"]),
             _ => return Err(invalid()),
         },
-        "more" => {
-            match value {
-                "商家" | "🏪 商家" => ask(&draft, StepType::Text, "merchant")
-                    .default(draft.merchant.clone().unwrap_or_default()),
-                "时间" | "🕒 时间" => ask(&draft, StepType::Date, "occurred_at")
-                    .default(draft.occurred_at.to_rfc3339()),
-                "备注" | "📝 备注" => ask(&draft, StepType::Text, "note")
-                    .default(draft.note.clone().unwrap_or_default()),
-                "收支类型" | "↔️ 收支类型" => {
-                    ask(&draft, StepType::Choose, "kind").options(["↘️ 支出", "↗️ 收入"])
-                }
-                _ => return Err(invalid()),
-            }
-        }
         "category" => {
             let categories: Vec<_> = catalog::categories(draft.kind)
                 .iter()
@@ -306,7 +296,7 @@ pub fn step(
             }
         },
         "account" => {
-            let value = choice(value, ACCOUNTS, "💳").ok_or_else(invalid)?;
+            let value = choice(value, &ACCOUNTS, "💳").ok_or_else(invalid)?;
             draft.account = Some(value.to_owned());
             menu(&draft, now)
         }
@@ -315,7 +305,11 @@ pub fn step(
                 .lines()
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
-                .map(|t| choice(t, TAGS, "🏷️").map(str::to_owned).ok_or_else(invalid))
+                .map(|t| {
+                    choice(t, &TAGS, "🏷️")
+                        .map(str::to_owned)
+                        .ok_or_else(invalid)
+                })
                 .collect::<Result<_, _>>()?;
             draft.tags = tags;
             menu(&draft, now)
@@ -335,8 +329,8 @@ pub fn step(
         }
         "kind" => {
             let kind = match value {
-                "支出" | "↘️ 支出" => Kind::Expense,
-                "收入" | "↗️ 收入" => Kind::Income,
+                "↘️ 支出" => Kind::Expense,
+                "↗️ 收入" => Kind::Income,
                 _ => return Err(invalid()),
             };
             if kind == draft.kind {

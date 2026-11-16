@@ -45,6 +45,8 @@ async fn main() -> anyhow::Result<()> {
     let text = std::fs::read_to_string(&path).with_context(|| format!("读取配置 {path}"))?;
     let config: Config = toml::from_str(&text).with_context(|| format!("解析配置 {path}"))?;
     anyhow::ensure!(!config.token.is_empty(), "token 不能为空");
+    catalog::init().context("加载 catalog.toml")?;
+    recognize::init_prompt().context("加载 prompt.txt")?;
     let recognizer = match config.deepseek {
         Some(ds) => {
             let api_key = std::env::var("DEEPSEEK_API_KEY")

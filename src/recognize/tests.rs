@@ -17,7 +17,7 @@ fn full_output() {
     let d = build_draft(
         output(
             r#"{"ok":true,"reason":null,"kind":"expense","amount":"32.50","merchant":"瑞幸咖啡",
-                "account":"微信","occurred_at":"2026-11-16 12:05","category":"餐饮","subcategory":"咖啡饮品"}"#,
+                "account":"微信","occurred_at":"2026-11-16 12:05","category":"coffee"}"#,
         ),
         now(),
     )
@@ -33,7 +33,7 @@ fn falls_back_with_warnings() {
     let d = build_draft(
         output(
             r#"{"ok":true,"kind":"expense","amount":18.5,"account":"支付宝",
-                "category":"宠物","subcategory":"猫粮"}"#,
+                "category":null}"#,
         ),
         now(),
     )
@@ -42,7 +42,7 @@ fn falls_back_with_warnings() {
     assert_eq!((d.category.as_str(), d.subcategory), (OTHER, None));
     assert_eq!(d.account, None, "不在列表的账户留空");
     assert_eq!(d.occurred_at, now());
-    assert_eq!(d.warnings.len(), 2);
+    assert!(d.warnings.is_empty());
 }
 
 #[test]

@@ -1,0 +1,72 @@
+accounts = ["微信", "银行卡"]
+tags = ["恋爱"]
+
+[[expense]]
+name = "餐饮"
+subs = ["三餐", "咖啡饮品", "零食水果", "聚餐"]
+keys = ["meal", "coffee", "snack", "dining"]
+
+[[expense]]
+name = "交通"
+subs = ["公交地铁", "打车", "加油充电", "停车", "火车飞机"]
+keys = ["transit", "taxi", "fuel", "parking", "rail"]
+
+[[expense]]
+name = "购物"
+subs = ["日用", "服饰", "数码", "家居"]
+keys = ["daily", "clothing", "digital", "home"]
+
+[[expense]]
+name = "居住"
+subs = ["房租", "水电燃气", "话费网费", "物业"]
+keys = ["rent", "utilities", "telecom", "property"]
+
+[[expense]]
+name = "娱乐"
+subs = ["会员订阅", "游戏", "电影演出", "旅行"]
+keys = ["subscription", "game", "show", "travel"]
+
+[[expense]]
+name = "医疗"
+subs = ["药品", "门诊"]
+keys = ["medicine", "clinic"]
+
+[[expense]]
+name = "人情"
+subs = ["红包", "礼物", "请客"]
+keys = ["redpacket", "gift", "treat"]
+
+[[expense]]
+name = "其他"
+subs = []
+keys = ["other"]
+
+[[income]]
+name = "工资"
+subs = []
+keys = ["salary"]
+
+[[income]]
+name = "奖金"
+subs = []
+keys = ["bonus"]
+
+[[income]]
+name = "红包"
+subs = []
+keys = ["redpacket_in"]
+
+[[income]]
+name = "退款"
+subs = []
+keys = ["refund"]
+
+[[income]]
+name = "理财"
+subs = []
+keys = ["investment"]
+
+[[income]]
+name = "其他"
+subs = []
+keys = ["other_in"]
