@@ -2,15 +2,16 @@
   // 面板里改一个字段：选完即保存；输入类按「完成」保存。
   import { onMount, tick } from "svelte";
   import Icon from "./Icon.svelte";
-  import { app, closeSheet, update } from "../lib/store.svelte";
-  import { field } from "../lib/fields";
-  import { localInput, parseCents, yuanInput } from "../lib/format";
-  import { color, emoji } from "../lib/look";
-  import type { Entry, FieldKey } from "../lib/types";
+  import { app, closeSheet, subsOf, tops, update } from "../lib/store.svelte";
+  import { field, labelOf } from "../lib/fields";
+  import { badge, localInput, parseCents, yuanInput } from "../lib/format";
+  import { cardLabel, color } from "../lib/look";
+  import type { Entry, FieldKey, Fields, FlowKind } from "../lib/types";
 
   let { entry, key }: { entry: Entry; key: FieldKey } = $props();
 
   const def = $derived(field(key));
+  const signed = $derived(entry.kind === "adjust");
   let text = $state("");
   let error = $state("");
   let input = $state<HTMLInputElement>();
@@ -25,16 +26,16 @@
     input?.select();
   });
 
-  function save(patch: Partial<Entry>) {
+  function save(patch: Partial<Fields>) {
     update(entry.id, patch);
     if (app.sheet?.field === key) closeSheet();
   }
 
   function submit() {
     if (key === "amount_cents") {
-      const cents = parseCents(text);
+      const cents = parseCents(text, signed);
       if (cents === null) {
-        error = "金额要大于 0，最多两位小数";
+        error = signed ? "差额不能为 0，最多两位小数" : "金额要大于 0，最多两位小数";
         input?.animate([{ translate: "0" }, { translate: "-8px" }, { translate: "8px" }, { translate: "0" }], { duration: 260 });
         return;
       }
@@ -61,17 +62,20 @@
     save({ occurred_at: d.toISOString() });
   }
 
-  function toggleTag(tag: string) {
-    const tags = entry.tags.includes(tag) ? entry.tags.filter((t) => t !== tag) : [...entry.tags, tag];
-    update(entry.id, { tags: app.catalog.tags.filter((t) => tags.includes(t)) });
+  function toggleTag(id: number) {
+    const ids = entry.tag_ids.includes(id) ? entry.tag_ids.filter((t) => t !== id) : [...entry.tag_ids, id];
+    update(entry.id, { tag_ids: app.catalog.tags.filter((t) => ids.includes(t.id)).map((t) => t.id) });
   }
 
-  const typed = $derived(["amount_cents", "merchant", "note", "occurred_at", "tags"].includes(key));
+  /** 转账的两边不能是同一个账户。 */
+  const other = $derived(key === "account_id" ? entry.to_account_id : key === "to_account_id" ? entry.account_id : null);
+
+  const typed = $derived(["amount_cents", "merchant", "note", "occurred_at", "tag_ids"].includes(key));
 </script>
 
 <header class="head">
   <button class="round" onclick={closeSheet} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2><span class="glyph"><Icon name={def.icon} size={19} weight={2.2} /></span>{def.label}</h2>
+  <h2><span class="glyph"><Icon name={def.icon} size={19} weight={2.2} /></span>{labelOf(def, entry)}</h2>
   {#if typed}
     <button class="link done" onclick={submit}>完成</button>
   {:else}
@@ -83,9 +87,9 @@
   {#if key === "amount_cents"}
     <label class="amount" class:bad={error}>
       <span class="cur">¥</span>
-      <input bind:this={input} bind:value={text} inputmode="decimal" enterkeyhint="done" onkeydown={(e) => e.key === "Enter" && submit()} oninput={() => (error = "")} />
+      <input bind:this={input} bind:value={text} inputmode={signed ? "text" : "decimal"} enterkeyhint="done" onkeydown={(e) => e.key === "Enter" && submit()} oninput={() => (error = "")} />
     </label>
-    <p class="hint" class:bad={error}>{error || "支付页上的实付金额"}</p>
+    <p class="hint" class:bad={error}>{error || (signed ? "比账面多填正数，少了填负数" : "支付页上的实付金额")}</p>
   {:else if key === "merchant" || key === "note"}
     <div class="field">
       <input bind:this={input} bind:value={text} placeholder={key === "note" ? "买了什么" : "商家名称"} enterkeyhint="done" onkeydown={(e) => e.key === "Enter" && submit()} />
@@ -100,37 +104,36 @@
     <div class="field"><input bind:this={input} type="datetime-local" bind:value={text} /></div>
   {:else if key === "kind"}
     <ul class="opts">
-      {#each [["expense", "支出", "↘️"], ["income", "收入", "↗️"]] as [k, label, emoji] (k)}
-        <li><button onclick={() => save({ kind: k as Entry["kind"] })}><span class="em">{emoji}</span>{label}{#if entry.kind === k}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}</button></li>
+      {#each [["expense", "支出", "arrow-out"], ["income", "收入", "arrow-in"]] as const as [k, label, icon] (k)}
+        <li><button onclick={() => save({ kind: k })}><span class="em"><Icon name={icon} size={18} weight={2.2} /></span>{label}{#if entry.kind === k}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}</button></li>
       {/each}
     </ul>
-  {:else if key === "account"}
+  {:else if key === "account_id" || key === "to_account_id"}
     <ul class="opts">
-      {#each app.catalog.accounts as a (a.name)}
+      {#each app.catalog.accounts.filter((a) => a.id !== other) as a (a.id)}
         <li>
-          <button onclick={() => save({ account: a.name })}>
-            <span class="two"><span>{a.name}</span>{#if a.card}<small>{a.card.type === "debit" ? "储蓄卡" : "信用卡"} 尾号 {a.card.number.slice(-4)}</small>{/if}</span>
-            {#if entry.account === a.name}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}
+          <button onclick={() => save({ [key]: a.id })}>
+            <span class="two"><span>{a.name}</span>{#if a.card}<small>{cardLabel(a.card)}</small>{/if}</span>
+            {#if entry[key] === a.id}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}
           </button>
         </li>
       {/each}
     </ul>
-  {:else if key === "tags"}
+  {:else if key === "tag_ids"}
     <ul class="opts">
-      {#each app.catalog.tags as t (t)}
-        <li><button onclick={() => toggleTag(t)}><span class="em">🏷️</span>{t}{#if entry.tags.includes(t)}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}</button></li>
+      {#each app.catalog.tags as t (t.id)}
+        <li><button onclick={() => toggleTag(t.id)}><span class="em"><Icon name="tag" size={18} weight={2.2} /></span>{t.name}{#if entry.tag_ids.includes(t.id)}<span class="tick"><Icon name="check" weight={2.6} /></span>{/if}</button></li>
       {/each}
     </ul>
-  {:else if key === "category"}
+  {:else if key === "category_id"}
     <div class="cats">
-      {#each app.catalog[entry.kind] as c, i (c.name)}
+      {#each tops(entry.kind as FlowKind) as c, i (c.id)}
+        {@const subs = subsOf(c)}
         <div class="cat" style:--cc={color(i)}>
-          <span class="cat-name"><span class="ce">{emoji({ category: c.name, subcategory: null })}</span>{c.name}</span>
+          <span class="cat-name"><span class="ce">{badge(c.name).icon}</span>{badge(c.name).text}</span>
           <span class="chips">
-            {#each c.subs.length ? c.subs : [null] as sub (sub)}
-              <button class:on={entry.category === c.name && entry.subcategory === sub} onclick={() => save({ category: c.name, subcategory: sub })}>
-                {sub ?? c.name}
-              </button>
+            {#each subs.length ? subs : [c] as s (s.id)}
+              <button class:on={entry.category_id === s.id} onclick={() => save({ category_id: s.id })}>{s.name}</button>
             {/each}
           </span>
         </div>
@@ -183,6 +186,8 @@
   }
   .body {
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     padding: 4px 16px 8px;
     -webkit-overflow-scrolling: touch;
   }
@@ -372,7 +377,8 @@
     transition: none;
   }
   .em {
-    font-size: 18px;
+    display: flex;
+    color: var(--tint);
   }
   .two {
     display: grid;

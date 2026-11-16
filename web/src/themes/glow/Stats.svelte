@@ -1,18 +1,21 @@
 <script lang="ts">
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import { app, back, breakdown, budgetOf, elapsedDays, isLatest, open, periodEntries, prefs, spendBars, sumBy, todayIndex, total } from "../../lib/store.svelte";
-  import { isYear, leaf, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
-  import { color, emoji, slices } from "../../lib/look";
+  import { app, breakdown, budgetOf, categoryOf, earning, elapsedDays, fallbackOf, isLatest, open, periodEntries, prefs, spendBars, spendIndex, spending, sumBy, todayIndex, topOf } from "../../lib/store.svelte";
+  import { badge, isYear, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
+  import { color, slices } from "../../lib/look";
+  import { isSpend } from "../../lib/kinds";
+  import { accountName, tagNames, view } from "../../lib/view";
 
   let scrolled = $state(false);
   let picked = $state<string | null>(null);
   let day = $state<number | null>(null);
 
   const list = $derived(periodEntries(app.period));
-  const spent = $derived(total(list, "expense"));
-  const income = $derived(total(list, "income"));
-  const prev = $derived(total(periodEntries(shiftPeriod(app.period, -1)), "expense"));
+  const spent = $derived(spending(list).cents);
+  const earned = $derived(earning(list));
+  const income = $derived(earned.cents);
+  const prev = $derived(spending(periodEntries(shiftPeriod(app.period, -1))).cents);
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
   const latest = $derived(isLatest(app.period));
   const year = $derived(isYear(app.period));
@@ -35,14 +38,19 @@
     return `${d.getMonth() + 1}月${d.getDate()}日`;
   };
 
-  const idx = (name: string) => Math.max(0, app.catalog.expense.findIndex((c) => c.name === name));
+  const idx = spendIndex;
   const parts = $derived(breakdown(list));
-  const ring = $derived(slices(parts, idx, 6));
-  const subs = (name: string) => sumBy(list.filter((e) => e.category === name), (e) => e.subcategory);
-  const accounts = $derived(sumBy(list, (e) => e.account));
+  const ring = $derived(slices(parts, idx, fallbackOf("expense").name, 6));
+  /** 一级分类下按二级汇总；记在一级上的不算。 */
+  const subs = (name: string) =>
+    sumBy(list, (e) => {
+      const c = categoryOf(e.category_id);
+      return c && c.parent_id !== null && topOf(c).name === name ? c.name : null;
+    });
+  const accounts = $derived(sumBy(list, (e) => accountName(e.account_id)));
   const merchants = $derived(sumBy(list, (e) => e.merchant).slice(0, 5));
-  const tags = $derived(sumBy(list, (e) => e.tags));
-  const biggest = $derived(list.filter((e) => e.kind === "expense").sort((a, b) => b.amount_cents - a.amount_cents).slice(0, 3));
+  const tags = $derived(sumBy(list, (e) => tagNames(e.tag_ids)));
+  const biggest = $derived(list.filter(isSpend).sort((a, b) => b.amount_cents - a.amount_cents).slice(0, 3));
   const pickedSlice = $derived(ring.find((s) => s.name === picked));
   const pct = (cents: number) => `${Math.round((cents / (spent || 1)) * 100)}%`;
   const change = $derived(prev ? Math.round(((spent - prev) / prev) * 100) : null);
@@ -70,7 +78,7 @@
 
 <div class="page" onscroll={(e) => (scrolled = e.currentTarget.scrollTop > 40)}>
   <header class="nav" class:scrolled>
-    <button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />账目</button>
+    <span></span>
     <span class="t">{label.title}统计</span>
     <span></span>
   </header>
@@ -86,7 +94,7 @@
       <small>支出</small><b class="num">{money(spent)}</b>
       {#if change !== null}<em class:up={change > 0}>{change > 0 ? "↑" : "↓"} 比{year ? "去年" : "上期"} {Math.abs(change)}%</em>{/if}
     </div>
-    <div class="tile"><small>收入</small><b class="num green">{money(income)}</b><em>{list.filter((e) => e.kind === "income").length} 笔</em></div>
+    <div class="tile"><small>收入</small><b class="num green">{money(income)}</b><em>{earned.count} 笔</em></div>
     <div class="tile"><small>结余</small><b class="num" class:red={income < spent}>{money(income - spent, true)}</b><em>收入 − 支出</em></div>
     <div class="tile"><small>{unit}均支出</small><b class="num">{money(avg)}</b><em>按 {elapsed} {year ? "个月" : "天"}算</em></div>
     {#if budget !== null}
@@ -134,8 +142,8 @@
       </div>
       {#each parts as p (p.name)}
         <button class="cat" class:open={picked === p.name} onclick={() => (picked = picked === p.name ? null : p.name)}>
-          <span class="ce" style:--c={color(idx(p.name))}>{emoji({ category: p.name, subcategory: null })}</span>
-          <span class="cn">{p.name}<small>{p.count} 笔</small></span>
+          <span class="ce" style:--c={color(idx(p.name))}>{badge(p.name).icon}</span>
+          <span class="cn">{badge(p.name).text}<small>{p.count} 笔</small></span>
           <span class="cv num">{money(p.cents)}<small>{pct(p.cents)}</small></span>
         </button>
         {#if picked === p.name}
@@ -170,7 +178,7 @@
   {#if tags.length}
     <h3 class="cap">标签</h3>
     <section class="card pad">
-      {#each tags as t (t.name)}{@render bar(`🏷️ ${t.name}`, t.cents, t.count, "var(--c2)", Math.max(...tags.map((x) => x.cents)))}{/each}
+      {#each tags as t (t.name)}{@render bar(t.name, t.cents, t.count, "var(--c2)", Math.max(...tags.map((x) => x.cents)))}{/each}
     </section>
   {/if}
 
@@ -180,7 +188,7 @@
       {#each biggest as e, i (e.id)}
         <button class="cat" onclick={() => open(e.id)}>
           <span class="rank num">{i + 1}</span>
-          <span class="cn">{e.merchant ?? leaf(e)}<small>{leaf(e)} · {dateOf(Math.floor((new Date(e.occurred_at).getTime() - start.getTime()) / 86400000))}</small></span>
+          <span class="cn">{view(e).title}<small>{categoryOf(e.category_id)?.name} · {dateOf(Math.floor((new Date(e.occurred_at).getTime() - start.getTime()) / 86400000))}</small></span>
           <span class="cv num">{money(e.amount_cents)}<small>{pct(e.amount_cents)}</small></span>
         </button>
       {/each}
@@ -194,6 +202,8 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: env(safe-area-inset-top);
   }
@@ -214,17 +224,6 @@
     backdrop-filter: saturate(180%) blur(24px);
     -webkit-backdrop-filter: saturate(180%) blur(24px);
     box-shadow: 0 0.5px 0 var(--sep);
-  }
-  .back {
-    justify-self: start;
-    display: flex;
-    align-items: center;
-    border: 0;
-    background: none;
-    color: var(--tint);
-    font: inherit;
-    font-size: 17px;
-    padding: 6px 4px;
   }
   .t {
     font-weight: 600;
@@ -552,6 +551,6 @@
     font-size: 14px;
   }
   .tail {
-    height: calc(env(safe-area-inset-bottom) + 40px);
+    height: calc(env(safe-area-inset-bottom) + 100px);
   }
 </style>

@@ -27,12 +27,17 @@
     | "update"
     | "receipt"
     | "eye"
-    | "eye-slash";
+    | "eye-slash"
+    | "chart"
+    | "transfer"
+    | "scale"
+    | "arrow-out"
+    | "arrow-in";
 </script>
 
 <script lang="ts">
   // 仿 SF Symbols 的线条图标。
-  let { name, size = 17, weight = 2 }: { name: IconName; size?: number; weight?: number } = $props();
+  let { name, size = 17, weight = 2 }: { name: IconName; size?: number | string; weight?: number } = $props();
   const paths: Record<IconName, string> = {
     "chevron-right": "M9 5l7 7-7 7",
     "chevron-left": "M15 5l-7 7 7 7",
@@ -61,6 +66,11 @@
     eye: "M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z",
     "eye-slash": "M3 3l18 18M10.6 5.6a9 9 0 011.4-.1c6.4 0 10 6.5 10 6.5a17 17 0 01-3 3.6M6.6 6.7C3.7 8.4 2 12 2 12s3.6 6.5 10 6.5c1.9 0 3.6-.6 5-1.4M9.9 9.9a3 3 0 004.2 4.2",
     receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
+    chart: "M5 20V11M10 20V5M15 20v-6M20 20V9",
+    transfer: "M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4",
+    scale: "M12 4v16M8 20h8M5 7h14M5 7l-3 6a3 3 0 006 0zM19 7l-3 6a3 3 0 006 0z",
+    "arrow-out": "M7 7l10 10M17 9v8H9",
+    "arrow-in": "M17 17L7 7M7 15V7h8",
     sparkles:"M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
   };
 </script>

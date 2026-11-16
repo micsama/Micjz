@@ -7,7 +7,7 @@
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { Reorder } from "../../ui/reorder.svelte";
   import { fade } from "svelte/transition";
-  import { app, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
+  import { app, balanceOf, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
   import { money } from "../../lib/format";
   import { brand, cardLabel } from "../../lib/look";
   import type { Account } from "../../lib/types";
@@ -18,7 +18,7 @@
   const reorder = new Reorder(moveAccount);
 
   // 财富页只看此刻：净资产和各账户余额，不随周期变；某段时间的收支点进账户看。
-  const bal = (a: Account) => app.balances[a.name] ?? 0;
+  const bal = (a: Account) => balanceOf(a.id);
   const assets = $derived(app.catalog.accounts.filter((a) => bal(a) > 0));
   const plus = $derived(assets.reduce((s, a) => s + bal(a), 0));
   const minus = $derived(app.catalog.accounts.reduce((s, a) => s + Math.min(0, bal(a)), 0));
@@ -43,19 +43,19 @@
   <section class="worth" onclick={() => (focus = null)} role="presentation">
     <span class="glass"></span>
     <div class="cap">
-      <span>{focus ? focus.name : "净资产"}<em>示例数据</em></span>
+      <span>{focus ? focus.name : "净资产"}</span>
       <button class="eye" onclick={(e) => { e.stopPropagation(); toggleBalance(); }} aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}>
         <Icon name={app.hideBalance ? "eye-slash" : "eye"} size={18} weight={2} />
       </button>
     </div>
-    {#key `${focus?.name}${app.hideBalance}`}
+    {#key `${focus?.id}${app.hideBalance}`}
       <b class="big num" class:neg={shown < 0} in:fade={{ duration: 220 }}>{mask(money(shown, shown < 0))}</b>
     {/key}
     <span class="when">{focus ? `占资产 ${plus ? Math.round((Math.max(0, bal(focus)) / plus) * 100) : 0}% · 点空白处回到净资产` : "截至此刻"}</span>
     {#if assets.length}
       <div class="stack">
-        {#each assets as a (a.name)}
-          <button class:dim={focus && focus.name !== a.name} style:flex={bal(a)} style:background={brand(a).bg}
+        {#each assets as a (a.id)}
+          <button class:dim={focus && focus.id !== a.id} style:flex={bal(a)} style:background={brand(a).bg}
             onclick={(e) => { e.stopPropagation(); focus = focus?.name === a.name ? null : a; }} aria-label={a.name}></button>
         {/each}
       </div>
@@ -69,10 +69,10 @@
 
   <h3 class="cap2">账户<button class="add" onclick={() => { holdKeyboard(); editing = "new"; }}><Icon name="plus" size={15} weight={2.4} />添加</button></h3>
   <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
-    {#each app.catalog.accounts as a, i (a.name)}
+    {#each app.catalog.accounts as a, i (a.id)}
       <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
       <SwipeRow actions={actions(a)}>
-      <button class="row" onclick={() => openAccount(a.name)}>
+      <button class="row" onclick={() => openAccount(a.id)}>
         <AccountLogo account={a} />
         <span class="main">
           <span class="name">{a.name}{#if i === 0}<em>默认</em>{/if}</span>
@@ -85,8 +85,7 @@
       </div>
     {/each}
   </div>
-  <p class="foot">右边是此刻的余额。点账户按月或按年看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制卡号或编辑账户。</p>
-  <p class="foot">余额现在是示例数据：要准确得先有转账记录和对账，排在统计之后做。</p>
+  <p class="foot">右边是此刻的余额，由所有账目推算，期初余额也是一笔平账。点账户按月或按年看它的账目；长按上下拖动排序，排第一的是默认账户（识别不出账户时用它）；左滑复制卡号或编辑账户。</p>
   <div class="tail"></div>
 </div>
 
@@ -99,6 +98,8 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: env(safe-area-inset-top);
   }
@@ -161,15 +162,6 @@
   }
   .worth .cap span {
     opacity: 0.9;
-  }
-  .worth .cap em {
-    margin-left: 8px;
-    padding: 1px 6px;
-    border-radius: 6px;
-    font-style: normal;
-    font-size: 11px;
-    font-weight: 500;
-    background: rgba(255, 255, 255, 0.18);
   }
   .eye {
     display: grid;
@@ -359,9 +351,6 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--label2);
-  }
-  .foot + .foot {
-    margin-top: 4px;
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 100px);

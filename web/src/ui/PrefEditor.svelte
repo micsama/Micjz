@@ -36,7 +36,7 @@
 
 <header class="head">
   <button class="round" onclick={onclose} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2>{which === "cycle" ? "📅 记账周期" : "🎯 每期预算"}</h2>
+  <h2><span class="glyph"><Icon name={which === "cycle" ? "calendar" : "target"} size={19} weight={2.2} /></span>{which === "cycle" ? "记账周期" : "每期预算"}</h2>
   {#if which === "budget"}<button class="link" onclick={submit}>完成</button>{:else}<span></span>{/if}
 </header>
 
@@ -66,7 +66,15 @@
     align-items: center;
     padding: 0 16px 10px;
   }
+  .glyph {
+    display: flex;
+    color: var(--tint);
+  }
   h2 {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
     margin: 0;
     text-align: center;
     font-size: 17px;

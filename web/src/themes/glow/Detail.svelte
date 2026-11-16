@@ -2,11 +2,12 @@
   import Icon from "../../ui/Icon.svelte";
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
-  import { back, categoryIndex, edit, remove } from "../../lib/store.svelte";
-  import { changes, FIELDS } from "../../lib/fields";
-  import { dateTime, leaf, money } from "../../lib/format";
-  import { color, emoji } from "../../lib/look";
+  import { app, back, edit, remove } from "../../lib/store.svelte";
+  import { changes, fieldsOf, labelOf } from "../../lib/fields";
+  import { dateTime } from "../../lib/format";
+  import { view } from "../../lib/view";
   import type { Entry } from "../../lib/types";
+  import Mark from "../../ui/Mark.svelte";
 
   let { entry }: { entry: Entry } = $props();
 
@@ -14,26 +15,25 @@
   let confirm = $state(false);
   let viewing = $state(false);
 
-  const c = $derived(color(categoryIndex(entry)));
-  const diff = $derived(changes(entry));
-  const rows = FIELDS.filter((f) => f.key !== "amount_cents");
+  const v = $derived(view(entry));
+  const shot = $derived(entry.recognition_id ? app.recognitions[entry.recognition_id] : undefined);
+  const diff = $derived(shot ? changes(entry, shot) : []);
+  const rows = $derived(fieldsOf(entry).filter((f) => f.key !== "amount_cents"));
   const tint = ["--c1", "--c4", "--c3", "--c0", "--c5", "--c2", "--c7"];
 </script>
 
-<div class="page" style:--c={c} onscroll={(e) => (scrolled = e.currentTarget.scrollTop > 120)}>
+<div class="page" style:--c={v.color} onscroll={(e) => (scrolled = e.currentTarget.scrollTop > 120)}>
   <header class="bar" class:scrolled>
     <button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />账目</button>
-    <span class="t">{entry.merchant ?? leaf(entry)}</span>
+    <span class="t">{v.title}</span>
     <span></span>
   </header>
 
   <section class="hero">
     <div class="aura"></div>
-    <span class="icon">{emoji(entry)}</span>
-    <h1>{entry.merchant ?? leaf(entry)}</h1>
-    <button class="amount num" class:income={entry.kind === "income"} onclick={() => edit(entry.id, "amount_cents")}>
-      {entry.kind === "income" ? money(entry.amount_cents, true) : money(entry.amount_cents)}
-    </button>
+    <span class="icon"><Mark mark={v.mark} /></span>
+    <h1>{v.title}</h1>
+    <button class="amount num" class:income={v.tone === "in"} onclick={() => edit(entry.id, "amount_cents")}>{v.amount}</button>
     <p>{dateTime(entry.occurred_at)}</p>
   </section>
 
@@ -41,30 +41,32 @@
     {#each rows as f, i (f.key)}
       <button class="row" onclick={() => edit(entry.id, f.key)}>
         <span class="fi" style:--fc="var({tint[i]})"><Icon name={f.icon} size={18} weight={2.2} /></span>
-        <span class="label">{f.label}</span>
+        <span class="label">{labelOf(f, entry)}</span>
         <span class="value" class:empty={!f.show(entry)}>{f.show(entry) || "未填写"}</span>
         <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
       </button>
     {/each}
   </div>
 
-  <h3 class="cap">截图</h3>
-  <div class="group">
-    <button class="shot" onclick={() => (viewing = true)}>
-      <img src={entry.image} alt="支付截图" />
-      <span class="shot-text">
-        {#if diff.length}<b>改过 {diff.length} 处</b><small>下面是识别值和最终值</small>{/if}
-        <span class="view"><Icon name="photo" size={15} />查看截图</span>
-      </span>
-    </button>
-    {#each diff as d (d.def.key)}
-      <div class="row diff">
-        <span class="fi" style:--fc="var(--c7)"><Icon name={d.def.icon} size={18} weight={2.2} /></span>
-        <span class="label">{d.def.label}</span>
-        <span class="value"><s>{d.from}</s><span class="arrow">→</span>{d.to}</span>
-      </div>
-    {/each}
-  </div>
+  {#if shot}
+    <h3 class="cap">截图</h3>
+    <div class="group">
+      <button class="shot" onclick={() => (viewing = true)}>
+        <img src={shot.image} alt="支付截图" />
+        <span class="shot-text">
+          {#if diff.length}<b>改过 {diff.length} 处</b><small>最初显示 → 现在</small>{/if}
+          <span class="view"><Icon name="photo" size={15} />查看截图</span>
+        </span>
+      </button>
+      {#each diff as d (d.def.key)}
+        <div class="row diff">
+          <span class="fi" style:--fc="var(--c7)"><Icon name={d.def.icon} size={18} weight={2.2} /></span>
+          <span class="label">{labelOf(d.def, entry)}</span>
+          <span class="value"><s>{d.from}</s><span class="arrow">→</span>{d.to}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <div class="group danger">
     <button class="row del" onclick={() => (confirm = true)}><Icon name="trash" size={18} />删除账目</button>
@@ -73,13 +75,15 @@
 </div>
 
 <ActionSheet open={confirm} title="删除后可以在几秒内撤销" actions={[{ label: "删除账目", danger: true, run: () => remove(entry.id) }]} oncancel={() => (confirm = false)} />
-{#if viewing}<ImageViewer src={entry.image} onclose={() => (viewing = false)} />{/if}
+{#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
 
 <style>
   .page {
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: env(safe-area-inset-top);
   }
@@ -155,6 +159,7 @@
     display: grid;
     place-items: center;
     font-size: 40px;
+    color: white;
     background: linear-gradient(145deg, color-mix(in oklab, var(--c) 50%, white), var(--c));
     box-shadow: 0 12px 26px -10px var(--c), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }

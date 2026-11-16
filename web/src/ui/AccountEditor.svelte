@@ -57,13 +57,13 @@
     if (!n) return void (error = { at: "name", text: "填一个名称" });
     if (cardType !== "none" && !/^\d{12,19}$/.test(digits)) return void (error = { at: "card", text: "卡号是 12～19 位数字" });
     const card = cardType === "none" ? null : { type: cardType, number: digits };
-    const err = saveAccount(old?.name ?? null, { name: n, brand, card });
+    const err = saveAccount({ id: old?.id ?? 0, name: n, brand, card });
     if (err) return void (error = { at: "name", text: err });
     onclose();
   }
 
   function remove() {
-    const err = removeAccount(old!.name);
+    const err = removeAccount(old!.id);
     if (err) return toast(err);
     onclose();
   }

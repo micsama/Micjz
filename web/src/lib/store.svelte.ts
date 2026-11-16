@@ -1,13 +1,14 @@
 // 页面状态和所有操作；主题只负责展示，改数据都走这里。
-import type { Account, Entry, FieldKey, Fields } from "./types";
-import { balances, catalog, entries as mockEntries } from "./mock";
+import type { Account, Category, Entry, FieldKey, Fields, FlowKind } from "./types";
+import { catalog, seed } from "./mock";
+import { effect, isIncome, isSpend, listed } from "./kinds";
 import { dayKey, isYear, periodOf, periodRange, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
-export type Tab = "list" | "wealth" | "settings";
+export type Tab = "list" | "stats" | "wealth" | "settings";
 
 /** 推入的页面：账目详情、统计、某个账户的账目（和账目页同一个页面，按账户筛选）。 */
-export type Page = { kind: "entry"; id: string } | { kind: "stats" } | { kind: "account"; name: string };
+export type Page = { kind: "entry"; id: string } | { kind: "account"; id: number };
 
 /** 用户设置；原型里存 localStorage，正式版存 SQLite。 */
 interface Prefs {
@@ -66,13 +67,15 @@ export function toggleBalance() {
   localStorage.setItem(HIDE, app.hideBalance ? "1" : "0");
 }
 
+const data = seed();
+
 export const app = $state({
   catalog,
-  entries: mockEntries(),
+  entries: data.entries,
+  /** 截图来的账目对应的识别，按 `recognition_id` 取。 */
+  recognitions: data.recognitions,
   /** 正在看的记账周期，月或年，见 `periodOf`。账目、财富、统计三页共用。 */
   period: currentPeriod(),
-  /** 各账户此刻的余额，分，负数是欠款。正式版由对账快照推算（见 brainstorm/balance.md），原型里是假数据。 */
-  balances,
   /** 隐藏余额，在别人面前打开时用。 */
   hideBalance: localStorage.getItem(HIDE) === "1",
   tab: "list" as Tab,
@@ -86,11 +89,38 @@ export const app = $state({
 
 export const find = (id: string) => app.entries.find((e) => e.id === id);
 
-export function periodEntries(period: string, account?: string): Entry[] {
-  return app.entries.filter(
-    (e) => within(periodOf(e.occurred_at, prefs.cycleDay), period) && !app.hidden.includes(e.id) && (!account || e.account === account),
-  );
+export const categoryOf = (id: number | null): Category | undefined => app.catalog.categories.find((c) => c.id === id);
+export const accountOf = (id: number | null): Account | undefined => app.catalog.accounts.find((a) => a.id === id);
+/** 一级分类：自己或上级。 */
+export const topOf = (c: Category) => (c.parent_id === null ? c : categoryOf(c.parent_id)!);
+export const tops = (kind: FlowKind) => app.catalog.categories.filter((c) => c.kind === kind && c.parent_id === null);
+export const subsOf = (c: Category) => app.catalog.categories.filter((s) => s.parent_id === c.id);
+/** 一级分类在同类里的序号，主题按它取颜色。 */
+export const topIndex = (c: Category) => Math.max(0, tops(c.kind).indexOf(topOf(c)));
+/** 换类型或识别不出时的默认分类，和服务端一致。 */
+const FALLBACK: Record<FlowKind, string> = { expense: "other", income: "other_in" };
+/** 兜底分类「其他」，按 key 认，改名不影响。 */
+export const fallbackOf = (kind: FlowKind) => app.catalog.categories.find((c) => c.key === FALLBACK[kind])!;
+
+const live = (e: Entry) => !app.hidden.includes(e.id);
+
+/** 周期里的账目；`account` 为账户明细，见 `listed`。 */
+export function periodEntries(period: string, account?: number): Entry[] {
+  return app.entries.filter((e) => live(e) && listed(e, account) && within(periodOf(e.occurred_at, prefs.cycleDay), period));
 }
+
+/** 账户此刻的余额，分，负数是欠款：所有账目的影响相加（期初余额也是一笔平账）。 */
+export const balanceOf = (account: number) => app.entries.reduce((s, e) => s + (live(e) ? effect(e, account) : 0), 0);
+
+/** 金额合计和笔数。「几笔」总是跟着它旁边的金额算，不另数。 */
+export interface Sum {
+  cents: number;
+  count: number;
+}
+const sum = (list: Entry[], pick: (e: Entry) => boolean): Sum =>
+  list.reduce((s, e) => (pick(e) ? { cents: s.cents + e.amount_cents, count: s.count + 1 } : s), { cents: 0, count: 0 });
+export const spending = (list: Entry[]) => sum(list, isSpend);
+export const earning = (list: Entry[]) => sum(list, isIncome);
 
 export function byDay(list: Entry[]): { day: string; at: string; entries: Entry[]; spent: number }[] {
   const groups = new Map<string, Entry[]>();
@@ -98,12 +128,7 @@ export function byDay(list: Entry[]): { day: string; at: string; entries: Entry[
     const k = dayKey(e.occurred_at);
     groups.set(k, [...(groups.get(k) ?? []), e]);
   }
-  return [...groups.entries()].map(([day, entries]) => ({
-    day,
-    at: entries[0].occurred_at,
-    entries,
-    spent: total(entries, "expense"),
-  }));
+  return [...groups.entries()].map(([day, entries]) => ({ day, at: entries[0].occurred_at, entries, spent: spending(entries).cents }));
 }
 
 /** 周期内的支出柱：按月看每天一根，按年看每月一根；下标 0 是第一天或 1 月。 */
@@ -112,7 +137,7 @@ export function spendBars(period: string, list: Entry[]): number[] {
   const year = isYear(period);
   const out = new Array(year ? 12 : days).fill(0);
   for (const e of list) {
-    if (e.kind !== "expense") continue;
+    if (!isSpend(e)) continue;
     const d = new Date(e.occurred_at);
     const i = year
       ? Number(periodOf(e.occurred_at, prefs.cycleDay).slice(5)) - 1
@@ -142,23 +167,25 @@ export function elapsedDays(period: string): { elapsed: number; days: number } {
   return { elapsed: Math.max(0, Math.floor((now - start.getTime()) / 86400000) + 1), days };
 }
 
-/** 每个月周期的支出和笔数，跳转面板用。 */
-export function monthTotals(account?: string): Map<string, { spent: number; count: number }> {
-  const out = new Map<string, { spent: number; count: number }>();
-  for (const e of app.entries) {
-    if (app.hidden.includes(e.id) || (account && e.account !== account)) continue;
+/** 按月周期分组，按年看和跳转面板用。 */
+export function byMonth(list: Entry[]): Map<string, Entry[]> {
+  const out = new Map<string, Entry[]>();
+  for (const e of list) {
     const k = periodOf(e.occurred_at, prefs.cycleDay);
-    const t = out.get(k) ?? { spent: 0, count: 0 };
-    out.set(k, { spent: t.spent + (e.kind === "expense" ? e.amount_cents : 0), count: t.count + 1 });
+    out.set(k, [...(out.get(k) ?? []), e]);
   }
   return out;
 }
+
+/** 每个月周期的支出，跳转面板用。 */
+export const monthTotals = (account?: number): Map<string, Sum> =>
+  new Map([...byMonth(app.entries.filter((e) => live(e) && listed(e, account)))].map(([k, es]) => [k, spending(es)]));
 
 /** 按某个维度汇总支出，从大到小。 */
 export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null): { name: string; cents: number; count: number }[] {
   const sums = new Map<string, { cents: number; count: number }>();
   for (const e of list) {
-    if (e.kind !== "expense") continue;
+    if (!isSpend(e)) continue;
     const k = key(e);
     for (const name of k === null ? [] : Array.isArray(k) ? k : [k]) {
       const s = sums.get(name) ?? { cents: 0, count: 0 };
@@ -168,19 +195,19 @@ export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null
   return [...sums].map(([name, s]) => ({ name, ...s })).sort((a, b) => b.cents - a.cents);
 }
 
-export const total = (list: Entry[], kind: Fields["kind"]) =>
-  list.filter((e) => e.kind === kind).reduce((s, e) => s + e.amount_cents, 0);
-
 /** 支出按一级分类汇总，从大到小。 */
-export const breakdown = (list: Entry[]) => sumBy(list, (e) => e.category);
+export const breakdown = (list: Entry[]) => sumBy(list, (e) => topOf(categoryOf(e.category_id)!).name);
 
-/** 一级分类在列表里的序号，主题按它取颜色。 */
-export const categoryIndex = (e: Pick<Fields, "kind" | "category">) =>
-  Math.max(0, app.catalog[e.kind].findIndex((c) => c.name === e.category));
+/** 支出一级分类在 `breakdown` 里的颜色序号，按名称找。 */
+export const spendIndex = (name: string) => Math.max(0, tops("expense").findIndex((c) => c.name === name));
 
 export const open = (id: string) => app.stack.push({ kind: "entry", id });
-export const openStats = () => app.stack.push({ kind: "stats" });
-export const openAccount = (name: string) => app.stack.push({ kind: "account", name });
+/** 统计只有一个：底部「统计」标签。别处的入口都切到它，看的是同一个周期。 */
+export function openStats() {
+  app.stack = [];
+  app.tab = "stats";
+}
+export const openAccount = (id: number) => app.stack.push({ kind: "account", id });
 
 /** 调整账户顺序；排第一的是默认账户，识别不出账户时用它。接服务器后写 `accounts.position`，原型里只改内存。 */
 export function moveAccount(from: number, to: number) {
@@ -190,30 +217,26 @@ export function moveAccount(from: number, to: number) {
   if (from === 0 || to === 0) toast(`默认账户：${list[0].name}`);
 }
 
-/** 新建（`old` 为空）或修改账户；名称冲突返回错误文案。原型里账目按名称引用账户，改名要跟着改；正式版按 id 引用，不用。 */
-export function saveAccount(old: string | null, next: Account): string | null {
+/** 新建（`id` 为 0）或修改账户；名称冲突返回错误文案。 */
+export function saveAccount(next: Account): string | null {
   const list = app.catalog.accounts;
-  if (list.some((a) => a.name === next.name && a.name !== old)) return "已经有同名账户";
-  if (old === null) {
-    list.push(next);
-    toast(`已添加 ${next.name}`);
+  if (list.some((a) => a.name === next.name && a.id !== next.id)) return "已经有同名账户";
+  const i = list.findIndex((a) => a.id === next.id);
+  if (i >= 0) {
+    list[i] = next;
     return null;
   }
-  list[list.findIndex((a) => a.name === old)] = next;
-  if (next.name !== old) {
-    for (const e of app.entries) if (e.account === old) e.account = next.name;
-    app.balances[next.name] = app.balances[old];
-    delete app.balances[old];
-  }
+  list.push({ ...next, id: Math.max(0, ...list.map((a) => a.id)) + 1 });
+  toast(`已添加 ${next.name}`);
   return null;
 }
 
 /** 删除账户；还有账目在用就不删，返回错误文案。 */
-export function removeAccount(name: string): string | null {
-  const used = app.entries.filter((e) => e.account === name).length;
+export function removeAccount(id: number): string | null {
+  const used = app.entries.filter((e) => e.account_id === id || e.to_account_id === id).length;
   if (used) return `还有 ${used} 笔账目在用，不能删除`;
   const list = app.catalog.accounts;
-  const i = list.findIndex((a) => a.name === name);
+  const i = list.findIndex((a) => a.id === id);
   list.splice(i, 1);
   toast(i === 0 && list.length ? `已删除，默认账户：${list[0].name}` : "已删除");
   return null;
@@ -236,7 +259,8 @@ export async function copy(text: string, what: string) {
 }
 export const back = () => app.stack.pop();
 export function edit(id: string, field: FieldKey) {
-  if (field === "amount_cents") holdKeyboard("decimal");
+  // 平账金额可以是负数，数字键盘没有负号。
+  if (field === "amount_cents") holdKeyboard(find(id)?.kind === "adjust" ? "text" : "decimal");
   if (field === "merchant" || field === "note") holdKeyboard();
   app.sheet = { id, field };
 }
@@ -245,10 +269,12 @@ export const closeSheet = () => (app.sheet = null);
 export function update(id: string, patch: Partial<Fields>) {
   const e = find(id);
   if (!e) return;
-  // 换类型后原分类不再适用：回到「其他」，接着让用户选分类（同快捷指令）。
+  // 支出、收入互换后原分类不再适用：回到「其他」，接着让用户选分类（同快捷指令）。转账、平账不能换类型。
   if (patch.kind && patch.kind !== e.kind) {
-    Object.assign(e, { kind: patch.kind, category: "其他", subcategory: null });
-    app.sheet = { id, field: "category" };
+    const kind = patch.kind as FlowKind;
+    e.kind = kind;
+    e.category_id = fallbackOf(kind).id;
+    app.sheet = { id, field: "category_id" };
     return;
   }
   Object.assign(e, patch);

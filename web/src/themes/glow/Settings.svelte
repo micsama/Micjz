@@ -103,6 +103,8 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: env(safe-area-inset-top);
   }

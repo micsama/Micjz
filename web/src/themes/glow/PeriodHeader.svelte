@@ -4,14 +4,14 @@
   import { scale } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import Icon from "../../ui/Icon.svelte";
-  import { app, currentPeriod, isLatest, monthTotals, prefs, setUnit } from "../../lib/store.svelte";
+  import { app, currentPeriod, isLatest, monthTotals, prefs, setUnit, type Sum } from "../../lib/store.svelte";
   import { isYear, periodLabel, shiftPeriod } from "../../lib/format";
 
   /**
    * `onshift` 拿到切换方向（-1 往前、1 往后、0 换单位），页面用它决定内容怎么进场。
    * `account` 让面板里的金额只算这个账户。
    */
-  let { onshift, account }: { onshift?: (delta: number) => void; account?: string } = $props();
+  let { onshift, account }: { onshift?: (delta: number) => void; account?: number } = $props();
 
   const year = $derived(isYear(app.period));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
@@ -20,13 +20,13 @@
   let open = $state(false);
   /** 面板里正在看的年份，只在按月时用。 */
   let shown = $state(0);
-  const totals = $derived(open ? monthTotals(account) : new Map<string, { spent: number; count: number }>());
+  const totals = $derived(open ? monthTotals(account) : new Map<string, Sum>());
   const thisYear = $derived(Number(currentPeriod(true)));
   const firstYear = $derived(Math.min(thisYear, ...[...totals.keys()].map((k) => Number(k.slice(0, 4)))));
   const years = $derived(Array.from({ length: thisYear - firstYear + 1 }, (_, i) => String(thisYear - i)));
 
   const yearTotal = (y: string) =>
-    [...totals].filter(([k]) => k.startsWith(`${y}-`)).reduce((s, [, t]) => ({ spent: s.spent + t.spent, count: s.count + t.count }), { spent: 0, count: 0 });
+    [...totals].filter(([k]) => k.startsWith(`${y}-`)).reduce((s, [, t]) => ({ cents: s.cents + t.cents, count: s.count + t.count }), { cents: 0, count: 0 });
 
   /** 面板里的金额只要量级，万以上用「万」。 */
   const brief = (cents: number) => {
@@ -82,7 +82,7 @@
           {#each years as y (y)}
             {@const t = yearTotal(y)}
             <button class:on={y === app.period} class:now={y === String(thisYear)} onclick={() => jump(y)}>
-              <b>{y}年</b><small class="num">{t.count ? brief(t.spent) : "—"}</small>
+              <b>{y}年</b><small class="num">{t.count ? brief(t.cents) : "—"}</small>
             </button>
           {/each}
         </div>
@@ -96,7 +96,7 @@
           {#each Array.from({ length: 12 }, (_, i) => `${shown}-${String(i + 1).padStart(2, "0")}`) as k, i (k)}
             {@const t = totals.get(k)}
             <button class:on={k === app.period} class:now={k === currentPeriod()} disabled={k > currentPeriod()} onclick={() => jump(k)}>
-              <b>{i + 1}月</b><small class="num">{t ? brief(t.spent) : "—"}</small>
+              <b>{i + 1}月</b><small class="num">{t ? brief(t.cents) : "—"}</small>
             </button>
           {/each}
         </div>

@@ -3,28 +3,30 @@
   import { backOut } from "svelte/easing";
   import SwipeRow from "../../ui/SwipeRow.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import { app, back, breakdown, byDay, categoryIndex, isLatest, open, openStats, periodEntries, prefs, remove, total } from "../../lib/store.svelte";
-  import { isYear, leaf, money, periodLabel, shiftPeriod, time } from "../../lib/format";
-  import { color, emoji, slices } from "../../lib/look";
+  import { accountOf, app, back, breakdown, byDay, fallbackOf, isLatest, open, openStats, periodEntries, prefs, remove, spendIndex, spending } from "../../lib/store.svelte";
+  import { badge, isYear, money, periodLabel, shiftPeriod, time } from "../../lib/format";
+  import { slices } from "../../lib/look";
+  import { view } from "../../lib/view";
   import AccountLogo from "../../ui/AccountLogo.svelte";
+  import Mark from "../../ui/Mark.svelte";
 
   // 传了账户就是推入的账户明细页：只看这个账户的账目，不显示预算。
-  let { account }: { account?: string } = $props();
+  let { account }: { account?: number } = $props();
+  const acct = $derived(account === undefined ? undefined : accountOf(account));
 
   let dir = $state(1);
   const list = $derived(periodEntries(app.period, account));
   const days = $derived(byDay(list));
-  const spent = $derived(total(list, "expense"));
-  const last = $derived(total(periodEntries(shiftPeriod(app.period, -1), account), "expense"));
+  const spent = $derived(spending(list).cents);
+  const last = $derived(spending(periodEntries(shiftPeriod(app.period, -1), account)).cents);
   const parts = $derived(breakdown(list));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
   const latest = $derived(isLatest(app.period));
-  const budget = $derived(account ? null : prefs.budget);
+  const budget = $derived(acct ? null : prefs.budget);
   const left = $derived(budget === null ? 0 : budget - spent);
   const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
 
-  const idx = (name: string) => Math.max(0, app.catalog.expense.findIndex((c) => c.name === name));
-  const ring = $derived(slices(parts, idx, 4));
+  const ring = $derived(slices(parts, spendIndex, fallbackOf("expense").name, 4));
   const mood = $derived(budget !== null ? (left >= 0 ? "🥰" : "🫣") : !last ? "🐷" : spent <= last ? "🥰" : "🫣");
   const compare = $derived(
     !last ? "第一个月，慢慢攒～" : spent <= last ? `比上个月少花 ${money(last - spent)}` : `比上个月多花 ${money(spent - last)}`,
@@ -38,10 +40,10 @@
 
 <div class="page">
   <header class="top">
-    {#if account}<button class="back" onclick={back} aria-label="返回">‹</button>{/if}
+    {#if acct}<button class="back" onclick={back} aria-label="返回">‹</button>{/if}
     <div class="hello">
       <small>{label.range || label.year}</small>
-      <h1>{#if account}<span class="logo"><AccountLogo account={app.catalog.accounts.find((a) => a.name === account) ?? { name: account, brand: null }} size={30} /></span>{account}{:else}{label.title}的小账本{/if}</h1>
+      <h1>{#if acct}<span class="logo"><AccountLogo account={acct} size={30} /></span>{acct.name}{:else}{label.title}的小账本{/if}</h1>
     </div>
     <div class="pill">
       <button onclick={() => go(-1)} aria-label="上个月">‹</button>
@@ -66,13 +68,13 @@
       {#if ring.length}
         <button class="candies" onclick={openStats}>
           <Donut slices={ring} size={118} thickness={20}>
-            <span class="donut-e">{emoji({ category: ring[0].name, subcategory: null })}</span>
+            <span class="donut-e">{badge(ring[0].name).icon}</span>
           </Donut>
           <ul>
             {#each ring as p, i (p.name)}
               <li style:--c={p.color} in:scale={{ start: 0.6, delay: 60 * i, duration: 500, easing: backOut }}>
-                <span class="ce">{emoji({ category: p.name, subcategory: null })}</span>
-                <span class="cn">{p.name}</span>
+                <span class="ce">{badge(p.name).icon}</span>
+                <span class="cn">{badge(p.name).text}</span>
                 <b class="num">{Math.round((p.cents / spent) * 100)}%</b>
               </li>
             {/each}
@@ -88,15 +90,16 @@
           {#if g.spent}<em class="num">-{money(g.spent)}</em>{/if}
         </h3>
         {#each g.entries as e (e.id)}
+          {@const v = view(e, account)}
           <div class="card">
             <SwipeRow actions={[{ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) }]}>
               <button class="row" onclick={() => open(e.id)}>
-                <span class="bubble" style:--c={color(categoryIndex(e))}>{emoji(e)}</span>
+                <span class="bubble" style:--c={v.color}><Mark mark={v.mark} /></span>
                 <span class="main">
-                  <span class="title">{e.merchant ?? leaf(e)}{#if e.tags.includes("恋爱")} 💗{/if}</span>
-                  <span class="chips"><i>{leaf(e)}</i><i>{e.account}</i><i class="num">{time(e.occurred_at)}</i></span>
+                  <span class="title">{v.title}{#if v.tags.includes("恋爱")} 💗{/if}</span>
+                  <span class="chips">{#each v.meta as m (m)}<i>{m}</i>{/each}<i class="num">{time(e.occurred_at)}</i></span>
                 </span>
-                <span class="amt num" class:income={e.kind === "income"}>{e.kind === "income" ? "+" : "-"}{money(e.amount_cents).slice(1)}</span>
+                <span class="amt num" class:income={v.tone === "in"} class:plain={v.tone === "plain"}>{v.amount}</span>
               </button>
             </SwipeRow>
           </div>
@@ -118,6 +121,8 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: calc(env(safe-area-inset-top) + 8px);
     background:
@@ -421,6 +426,9 @@
   }
   .amt.income {
     color: var(--green);
+  }
+  .amt.plain {
+    color: var(--label2);
   }
   .empty {
     display: grid;

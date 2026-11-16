@@ -13,12 +13,18 @@
   $effect(() => {
     const vv = window.visualViewport;
     if (!vv || !open) return;
-    const sync = () => (keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    // 面板常驻、只切 open：每次打开先量一次、关闭归零，否则上一个输入框留下的键盘高度会把选择类面板顶到半空。
+    const sync = () => {
+      const gap = window.innerHeight - vv.height - vv.offsetTop;
+      keyboard = gap > 80 ? gap : 0;
+    };
+    sync();
     vv.addEventListener("resize", sync);
     vv.addEventListener("scroll", sync);
     return () => {
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", sync);
+      keyboard = 0;
     };
   });
 

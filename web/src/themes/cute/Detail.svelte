@@ -1,78 +1,82 @@
 <script lang="ts">
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
-  import { back, categoryIndex, edit, remove } from "../../lib/store.svelte";
-  import { changes, FIELDS } from "../../lib/fields";
-  import { dateTime, leaf, money } from "../../lib/format";
-  import { color, emoji } from "../../lib/look";
+  import { app, back, edit, remove } from "../../lib/store.svelte";
+  import { changes, fieldsOf, labelOf } from "../../lib/fields";
+  import { dateTime } from "../../lib/format";
+  import { view } from "../../lib/view";
   import type { Entry } from "../../lib/types";
+  import Mark from "../../ui/Mark.svelte";
 
   let { entry }: { entry: Entry } = $props();
 
   let confirm = $state(false);
   let viewing = $state(false);
 
-  const c = $derived(color(categoryIndex(entry)));
-  const diff = $derived(changes(entry));
-  const tiles = FIELDS.filter((f) => f.key !== "amount_cents");
+  const v = $derived(view(entry));
+  const shot = $derived(entry.recognition_id ? app.recognitions[entry.recognition_id] : undefined);
+  const diff = $derived(shot ? changes(entry, shot) : []);
+  const tiles = $derived(fieldsOf(entry).filter((f) => f.key !== "amount_cents"));
 </script>
 
-<div class="page" style:--c={c}>
+<div class="page" style:--c={v.color}>
   <header class="top">
     <button class="back" onclick={back} aria-label="返回">‹</button>
   </header>
 
   <div class="wrap">
-  <span class="bubble">{emoji(entry)}</span>
+  <span class="bubble"><Mark mark={v.mark} /></span>
   <section class="ticket">
-    <h1>{entry.merchant ?? leaf(entry)}</h1>
+    <h1>{v.title}</h1>
     <p class="when num">{dateTime(entry.occurred_at)}</p>
     <div class="dash"></div>
-    <button class="amount num" class:income={entry.kind === "income"} onclick={() => edit(entry.id, "amount_cents")}>
-      {entry.kind === "income" ? "+" : "-"}{money(entry.amount_cents)}
-    </button>
+    <button class="amount num" class:income={v.tone === "in"} onclick={() => edit(entry.id, "amount_cents")}>{v.amount}</button>
     <small>点金额可以改哦</small>
   </section>
   </div>
 
   <section class="tiles">
     {#each tiles as f (f.key)}
-      <button class="tile" class:wide={f.key === "note" || f.key === "category"} onclick={() => edit(entry.id, f.key)}>
+      <button class="tile" class:wide={f.key === "note" || f.key === "category_id"} onclick={() => edit(entry.id, f.key)}>
         <span class="te">{f.emoji}</span>
-        <span class="tl">{f.label}</span>
+        <span class="tl">{labelOf(f, entry)}</span>
         <span class="tv" class:empty={!f.show(entry)}>{f.show(entry) || "还没填～"}</span>
       </button>
     {/each}
   </section>
 
-  <h3 class="cap">📸 截图</h3>
-  <section class="notes">
-    <button class="polaroid" onclick={() => (viewing = true)}>
-      <img src={entry.image} alt="支付截图" />
-      <span>原图</span>
-    </button>
-    {#if diff.length}
-      <div class="sticky">
-        <b>你帮 AI 改了 {diff.length} 处</b>
-        {#each diff as d (d.def.key)}
-          <p>{d.def.emoji} <s>{d.from}</s> → {d.to}</p>
-        {/each}
-      </div>
-    {/if}
-  </section>
+  {#if shot}
+    <h3 class="cap">📸 截图</h3>
+    <section class="notes">
+      <button class="polaroid" onclick={() => (viewing = true)}>
+        <img src={shot.image} alt="支付截图" />
+        <span>原图</span>
+      </button>
+      {#if diff.length}
+        <div class="sticky">
+          <b>后来改了 {diff.length} 处</b>
+          {#each diff as d (d.def.key)}
+            <p>{d.def.emoji} <s>{d.from}</s> → {d.to}</p>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <button class="del" onclick={() => (confirm = true)}>不要这笔了 🗑️</button>
   <div class="tail"></div>
 </div>
 
 <ActionSheet open={confirm} title="删掉之后几秒内还能撤销" actions={[{ label: "删掉它", danger: true, run: () => remove(entry.id) }]} oncancel={() => (confirm = false)} />
-{#if viewing}<ImageViewer src={entry.image} onclose={() => (viewing = false)} />{/if}
+{#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
 
 <style>
   .page {
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: calc(env(safe-area-inset-top) + 6px);
     background:

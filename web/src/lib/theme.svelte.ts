@@ -12,7 +12,7 @@ export interface Theme {
   /** 设置页里的一句介绍。 */
   blurb: string;
   /** 账目列表；传 `account` 时是推入的账户明细页。 */
-  List: Component<{ account?: string }>;
+  List: Component<{ account?: number }>;
   Detail: Component<{ entry: Entry }>;
   Settings: Component;
   Stats: Component;

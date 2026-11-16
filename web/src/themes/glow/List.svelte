@@ -4,15 +4,17 @@
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
   import SwipeRow from "../../ui/SwipeRow.svelte";
-  import { app, back, breakdown, budgetOf, byDay, categoryIndex, open, openStats, periodEntries, prefs, remove, spendBars, todayIndex, total } from "../../lib/store.svelte";
-  import { dayLabel, isYear, leaf, money, periodLabel, periodOf, time } from "../../lib/format";
-  import { cardLabel, color, emoji, slices } from "../../lib/look";
+  import { accountOf, app, back, breakdown, budgetOf, byDay, byMonth, earning, fallbackOf, open, openStats, periodEntries, prefs, remove, spendIndex, spendBars, spending, todayIndex } from "../../lib/store.svelte";
+  import { dayLabel, isYear, money, periodLabel, time } from "../../lib/format";
+  import { cardLabel, color, slices } from "../../lib/look";
+  import { view } from "../../lib/view";
   import AccountLogo from "../../ui/AccountLogo.svelte";
   import PeriodHeader from "./PeriodHeader.svelte";
+  import Mark from "../../ui/Mark.svelte";
 
   // 传了账户就是推入的账户明细页：只看这个账户的账目，不显示预算。
-  let { account }: { account?: string } = $props();
-  const acct = $derived(account ? app.catalog.accounts.find((a) => a.name === account) : undefined);
+  let { account }: { account?: number } = $props();
+  const acct = $derived(account === undefined ? undefined : accountOf(account));
 
   let collapsed = $state(false);
   let dir = $state(1);
@@ -20,33 +22,27 @@
 
   const list = $derived(periodEntries(app.period, account));
   const days = $derived(byDay(list));
-  const spent = $derived(total(list, "expense"));
-  const income = $derived(total(list, "income"));
-  const idx = (name: string) => Math.max(0, app.catalog.expense.findIndex((c) => c.name === name));
+  const out = $derived(spending(list));
+  const spent = $derived(out.cents);
+  const income = $derived(earning(list).cents);
   const parts = $derived(breakdown(list));
-  const ring = $derived(slices(parts, idx));
+  const ring = $derived(slices(parts, spendIndex, fallbackOf("expense").name));
   const year = $derived(isYear(app.period));
   const bars = $derived(spendBars(app.period, list));
   const peak = $derived(Math.max(1, ...bars));
   const today = $derived(todayIndex(app.period));
   const label = $derived(periodLabel(app.period, prefs.cycleDay));
-  const budget = $derived(account ? null : budgetOf(app.period));
+  const budget = $derived(account === undefined ? budgetOf(app.period) : null);
   const left = $derived(budget === null ? 0 : budget - spent);
   // 剩余天数或月数（含今天、本月），只对当前周期有意义。
   const unitsLeft = $derived(today < 0 ? 0 : bars.length - today);
 
   // 按年看时不列每一笔，按月汇总；点一个月进到那个月。
-  const months = $derived.by(() => {
-    if (!year) return [];
-    const groups = new Map<string, typeof list>();
-    for (const e of list) {
-      const k = periodOf(e.occurred_at, prefs.cycleDay);
-      groups.set(k, [...(groups.get(k) ?? []), e]);
-    }
-    return [...groups].map(([key, es]) => ({ key, spent: total(es, "expense"), income: total(es, "income"), count: es.length }));
-  });
-  const monthBudget = $derived(account ? null : prefs.budget);
-  const monthScale = $derived(Math.max(1, monthBudget ?? 0, ...months.map((m) => m.spent)));
+  const months = $derived(
+    year ? [...byMonth(list)].map(([key, es]) => ({ key, out: spending(es), income: earning(es).cents })) : [],
+  );
+  const monthBudget = $derived(account === undefined ? prefs.budget : null);
+  const monthScale = $derived(Math.max(1, monthBudget ?? 0, ...months.map((m) => m.out.cents)));
 
   function drill(key: string) {
     dir = 1;
@@ -54,21 +50,21 @@
     page?.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const glow = $derived([0, 1, 2].map((i) => color(idx(parts[i]?.name ?? "其他") + (parts[i] ? 0 : i))));
+  const glow = $derived([0, 1, 2].map((i) => color(spendIndex(parts[i]?.name ?? "") + (parts[i] ? 0 : i))));
 
   const [yuan, cents] = $derived(money(spent).split("."));
 </script>
 
 <div class="page" bind:this={page} onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
-  <header class="bar" class:collapsed class:pushed={account}>
-    {#if account}<button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />财富</button>{/if}
-    <span>{account ?? label.title}</span>
+  <header class="bar" class:collapsed class:pushed={acct}>
+    {#if acct}<button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />财富</button>{/if}
+    <span>{acct?.name ?? label.title}</span>
   </header>
 
-  {#if account}
+  {#if acct}
     <div class="acct">
-      <AccountLogo account={acct ?? { name: account, brand: null }} size={46} />
-      <span><b>{account}</b><small class="num">{acct?.card ? cardLabel(acct.card) : "无卡号"}</small></span>
+      <AccountLogo account={acct} size={46} />
+      <span><b>{acct.name}</b><small class="num">{acct?.card ? cardLabel(acct.card) : "无卡号"}</small></span>
     </div>
   {/if}
   <PeriodHeader {account} onshift={(d) => (dir = d)} />
@@ -77,7 +73,7 @@
     <div in:fly={{ x: 40 * dir, duration: 420, easing: quintOut }}>
       <button class="hero" style:--g1={glow[0]} style:--g2={glow[1]} style:--g3={glow[2]} onclick={openStats}>
         <span class="glass"></span>
-        <span class="cap">{account ? "这个账户" : ""}{year ? "全年支出" : prefs.cycleDay === 1 ? "本月支出" : "本期支出"}<Icon name="chevron-right" size={13} weight={2.8} /></span>
+        <span class="cap">{acct ? "这个账户" : ""}{year ? "全年支出" : prefs.cycleDay === 1 ? "本月支出" : "本期支出"}<Icon name="chevron-right" size={13} weight={2.8} /></span>
         <span class="big num">{yuan}<span>.{cents}</span></span>
         {#if budget !== null}
           <span class="budget">
@@ -87,7 +83,7 @@
             </span>
           </span>
         {:else}
-          <span class="sub num">收入 {money(income)} · {list.length} 笔</span>
+          <span class="sub num">{out.count} 笔{#if income} · 收入 {money(income)}{/if}</span>
         {/if}
         <span class="bars" aria-hidden="true">
           {#each bars as v, i (i)}
@@ -100,11 +96,11 @@
         <button class="mix" onclick={openStats}>
           <Donut slices={ring} size={112} thickness={14}>
             <small>{parts.length} 类</small>
-            <b class="num">{list.filter((e) => e.kind === "expense").length} 笔</b>
+            <b class="num">{out.count} 笔</b>
           </Donut>
           <ul>
             {#each ring as p (p.name)}
-              <li><b style:background={p.color}></b><span class="n">{p.name}</span><span class="num">{Math.round((p.cents / spent) * 100)}%</span></li>
+              <li><b style:background={p.color}></b><span class="n">{p.name}</span><span class="num">{money(p.cents)}</span><small class="num">{Math.round((p.cents / spent) * 100)}%</small></li>
             {/each}
           </ul>
         </button>
@@ -117,9 +113,9 @@
             <button class="row month" onclick={() => drill(m.key)}>
               <span class="mo"><b class="num">{Number(m.key.slice(5))}</b>月</span>
               <span class="main">
-                <span class="title num">{money(m.spent)}<small>{m.count} 笔{#if m.income} · 收入 {money(m.income)}{/if}</small></span>
+                <span class="title num">{money(m.out.cents)}<small>{m.out.count} 笔{#if m.income} · 收入 {money(m.income)}{/if}</small></span>
                 <span class="meter">
-                  <i class:over={monthBudget !== null && m.spent > monthBudget} style:width="{(m.spent / monthScale) * 100}%"></i>
+                  <i class:over={monthBudget !== null && m.out.cents > monthBudget} style:width="{(m.out.cents / monthScale) * 100}%"></i>
                   {#if monthBudget !== null}<b style:left="{(monthBudget / monthScale) * 100}%"></b>{/if}
                 </span>
               </span>
@@ -134,15 +130,16 @@
         <h3 class="day"><span>{dayLabel(g.at)}</span>{#if g.spent}<span class="num">支出 {money(g.spent)}</span>{/if}</h3>
         <div class="group">
           {#each g.entries as e (e.id)}
+            {@const v = view(e, account)}
             <SwipeRow actions={[{ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) }]}>
               <button class="row" onclick={() => open(e.id)}>
-                <span class="icon" style:--c={color(categoryIndex(e))}>{emoji(e)}</span>
+                <span class="icon" style:--c={v.color}><Mark mark={v.mark} /></span>
                 <span class="main">
-                  <span class="title">{e.merchant ?? leaf(e)}</span>
-                  <span class="meta">{leaf(e)} · {e.account}{#if e.tags.length}{" · "}<em>{e.tags.join(" ")}</em>{/if}</span>
+                  <span class="title">{v.title}</span>
+                  <span class="meta">{v.meta.join(" · ")}{#if v.tags.length}{" · "}<em>{v.tags.join(" ")}</em>{/if}</span>
                 </span>
                 <span class="right">
-                  <span class="amt num" class:income={e.kind === "income"}>{e.kind === "income" ? money(e.amount_cents, true) : money(e.amount_cents)}</span>
+                  <span class="amt num" class:income={v.tone === "in"} class:plain={v.tone === "plain"}>{v.amount}</span>
                   <span class="time num">{time(e.occurred_at)}</span>
                 </span>
               </button>
@@ -152,7 +149,7 @@
       {:else}
         {#if !months.length}
         <div class="empty">
-          <div class="em">🧾</div>
+          <div class="em"><Icon name="receipt" size={54} weight={1.6} /></div>
           <p>{year ? "这一年" : "这个月"}还没有账目</p>
           <small>支付完成后轻点手机背面，截图就会记下来</small>
         </div>
@@ -168,6 +165,8 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     padding-top: env(safe-area-inset-top);
   }
@@ -390,8 +389,18 @@
   .mix li .n {
     flex: 1;
   }
-  .mix li .num {
-    color: var(--label2);
+  .mix li .n {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .mix li small {
+    flex: none;
+    width: 4ch;
+    text-align: right;
+    font-size: 12px;
+    color: var(--label3);
   }
 
   .day {
@@ -508,6 +517,7 @@
     display: grid;
     place-items: center;
     font-size: 20px;
+    color: white;
     background: linear-gradient(145deg, color-mix(in oklab, var(--c) 55%, white), var(--c));
     box-shadow: 0 3px 8px -3px color-mix(in oklab, var(--c) 80%, transparent), inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
   }
@@ -547,6 +557,9 @@
   .amt.income {
     color: var(--green);
   }
+  .amt.plain {
+    color: var(--label2);
+  }
   .time {
     font-size: 12px;
     color: var(--label3);
@@ -559,7 +572,9 @@
     text-align: center;
   }
   .empty .em {
-    font-size: 54px;
+    display: flex;
+    justify-content: center;
+    color: var(--label3);
   }
   .empty p {
     margin: 6px 0 0;

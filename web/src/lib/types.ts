@@ -1,43 +1,68 @@
-// 和服务端 Draft 字段同名。
-export type Kind = "expense" | "income";
+// 和服务端表结构同形：账目引用分类、账户、标签都用 id。见 docs/blueprints/entries.md。
 
+/** 四类账目；只有支出、收入有分类、进收支统计。 */
+export type Kind = "expense" | "income" | "transfer" | "adjust";
+/** 有分类的两类。 */
+export type FlowKind = "expense" | "income";
+
+/** 两级分类平铺；`parent_id` 为空是一级。顺序即 `position`。`key` 给模型，不随改名变。 */
 export interface Category {
+  id: number;
+  kind: FlowKind;
+  parent_id: number | null;
   name: string;
-  subs: string[];
+  key: string;
 }
 
 export interface Account {
+  id: number;
   name: string;
   /** 所属机构，取 `LOGOS` 里的名称；决定标志，也会告诉模型。空为「其他」。 */
   brand: string | null;
   card: { type: "debit" | "credit"; number: string } | null;
 }
 
-export interface Catalog {
-  expense: Category[];
-  income: Category[];
-  accounts: Account[];
-  tags: string[];
+export interface Tag {
+  id: number;
+  name: string;
 }
 
-export interface Fields {
+export interface Catalog {
+  categories: Category[];
+  /** 顺序即 `position`，排第一的是默认账户。 */
+  accounts: Account[];
+  tags: Tag[];
+}
+
+/** `entries` 的一行加它的标签。 */
+export interface Entry {
+  id: string;
+  /** 截图来的才有，指向那次识别。 */
+  recognition_id: string | null;
   kind: Kind;
+  /** 分；平账是带符号的差额，其余大于 0。 */
   amount_cents: number;
-  category: string;
-  subcategory: string | null;
-  account: string;
+  /** 支出、收入必填（最细一级），其余为空。 */
+  category_id: number | null;
+  /** 转账的转出方。 */
+  account_id: number;
+  /** 转账的转入方，其余为空。 */
+  to_account_id: number | null;
   merchant: string | null;
   occurred_at: string;
   note: string | null;
-  tags: string[];
-}
-
-export interface Entry extends Fields {
-  id: string;
   created_at: string;
-  /** 模型给的草稿；字段为 null 表示模型没给。 */
-  origin: Partial<Fields>;
-  image: string;
+  tag_ids: number[];
 }
 
-export type FieldKey = "amount_cents" | "kind" | "category" | "account" | "merchant" | "occurred_at" | "tags" | "note";
+/** 一次识别：截图和用户在快捷指令里第一眼看到的草稿（服务器补过默认值）。 */
+export interface Recognition {
+  id: string;
+  image: string;
+  /** 最初显示的字段；金额可能没识别出来。 */
+  first: Omit<Fields, "amount_cents"> & { amount_cents: number | null };
+}
+
+/** 详情里能改的字段。 */
+export type Fields = Pick<Entry, "kind" | "amount_cents" | "category_id" | "account_id" | "to_account_id" | "merchant" | "occurred_at" | "note" | "tag_ids">;
+export type FieldKey = keyof Fields;

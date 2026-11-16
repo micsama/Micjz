@@ -1,4 +1,9 @@
-import type { Fields } from "./types";
+/** 名字开头的 emoji 拆出来当图标，剩下的当文字；没有 emoji 就用首字。只管显示，名字本身由用户编辑。 */
+export function badge(name: string): { icon: string; text: string } {
+  const [first = ""] = Array.from(new Intl.Segmenter().segment(name), (s) => s.segment);
+  if (!/\p{Extended_Pictographic}/u.test(first)) return { icon: first, text: name };
+  return { icon: first, text: name.slice(first.length).trim() || name };
+}
 
 const WEEK = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -11,17 +16,13 @@ export function money(cents: number, sign = false): string {
 /** 金额输入框里的文本：去掉多余的 0。 */
 export const yuanInput = (cents: number) => (cents / 100).toFixed(2).replace(/\.?0+$/, "");
 
-export function parseCents(s: string): number | null {
-  const m = s.trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
-  if (!m) return null;
-  const cents = Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
-  return cents > 0 ? cents : null;
+/** 金额文本转分；默认要大于 0，`signed` 允许负数（平账），但不能为 0。 */
+export function parseCents(s: string, signed = false): number | null {
+  const m = s.trim().replace(/^[−–]/, "-").match(/^(-)?(\d+)(?:\.(\d{1,2}))?$/);
+  if (!m || (m[1] && !signed)) return null;
+  const cents = (Number(m[2]) * 100 + Number((m[3] ?? "").padEnd(2, "0"))) * (m[1] ? -1 : 1);
+  return cents === 0 || (!signed && cents < 0) ? null : cents;
 }
-
-export const categoryLabel = (f: Pick<Fields, "category" | "subcategory">) =>
-  f.subcategory ? `${f.category} › ${f.subcategory}` : f.category;
-
-export const leaf = (f: Pick<Fields, "category" | "subcategory">) => f.subcategory ?? f.category;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 

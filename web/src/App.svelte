@@ -24,15 +24,13 @@
   style:transform={depth ? `translateX(${-30 * (1 - nav.drag)}%)` : ""}
   style:--dim={depth ? 1 - nav.drag : 0}
 >
-  {#if app.tab === "list"}<t.List />{:else if app.tab === "wealth"}<t.Wealth />{:else}<t.Settings />{/if}
+  {#if app.tab === "list"}<t.List />{:else if app.tab === "stats"}<t.Stats />{:else if app.tab === "wealth"}<t.Wealth />{:else}<t.Settings />{/if}
   <t.TabBar />
 </div>
 
 {#each app.stack as page, i (page.kind === "entry" ? page.id : `${page.kind}-${i}`)}
-  {#if page.kind === "stats"}
-    <Pushed onback={back}>{#key t.id}<t.Stats />{/key}</Pushed>
-  {:else if page.kind === "account"}
-    <Pushed onback={back}>{#key t.id}<t.List account={page.name} />{/key}</Pushed>
+  {#if page.kind === "account"}
+    <Pushed onback={back}>{#key t.id}<t.List account={page.id} />{/key}</Pushed>
   {:else}
     {@const entry = find(page.id)}
     {#if entry}
