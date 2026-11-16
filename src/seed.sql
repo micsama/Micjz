@@ -1,0 +1,46 @@
+-- 新库的初始分类、账户、标签：库里还没有分类时由二进制执行一次，迁移脚本也 .read 它。
+-- 之后以数据库为准，用 `micjz category|account|tag ...` 管理（见 readme.md）。
+-- 每个分类都有 key（小写英文，全局唯一）；只有叶子的 key 会给模型。
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '餐饮', 'food');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '三餐', 'meal' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '餐饮';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '咖啡饮品', 'coffee' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '餐饮';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '零食水果', 'snack' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '餐饮';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '聚餐', 'dining' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '餐饮';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '交通', 'transport');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '公交地铁', 'transit' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '交通';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '打车', 'taxi' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '交通';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '加油充电', 'fuel' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '交通';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '停车', 'parking' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '交通';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '火车飞机', 'rail' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '交通';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '购物', 'shopping');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '日用', 'daily' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '购物';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '服饰', 'clothing' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '购物';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '数码', 'digital' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '购物';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '家居', 'home' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '购物';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '居住', 'housing');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '房租', 'rent' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '居住';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '水电燃气', 'utilities' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '居住';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '话费网费', 'telecom' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '居住';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '物业', 'property' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '居住';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '娱乐', 'fun');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '会员订阅', 'subscription' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '娱乐';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '游戏', 'game' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '娱乐';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '电影演出', 'show' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '娱乐';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '旅行', 'travel' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '娱乐';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '医疗', 'medical');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '药品', 'medicine' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '医疗';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '门诊', 'clinic' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '医疗';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '人情', 'social');
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '红包', 'redpacket' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '人情';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '礼物', 'gift' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '人情';
+INSERT INTO categories (kind, parent_id, name, key) SELECT 'expense', id, '请客', 'treat' FROM categories WHERE kind = 'expense' AND parent_id IS NULL AND name = '人情';
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('expense', NULL, '其他', 'other');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '工资', 'salary');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '奖金', 'bonus');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '红包', 'redpacket_in');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '退款', 'refund');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '理财', 'investment');
+INSERT INTO categories (kind, parent_id, name, key) VALUES ('income', NULL, '其他', 'other_in');
+INSERT INTO accounts (name) VALUES ('微信');
+INSERT INTO accounts (name) VALUES ('银行卡');
+INSERT INTO tags (name) VALUES ('恋爱');

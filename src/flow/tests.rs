@@ -1,6 +1,7 @@
 use chrono::TimeZone;
 
 use super::*;
+use crate::catalog;
 
 fn now() -> DateTime<FixedOffset> {
     tz().with_ymd_and_hms(2026, 11, 16, 13, 42, 0).unwrap()
@@ -22,14 +23,14 @@ fn draft() -> Draft {
 }
 
 fn reply(draft: Draft, field: &str, value: &str) -> Reply {
-    match step(draft, field, value, now()).unwrap() {
+    match step(draft, field, value, now(), &catalog::defaults()).unwrap() {
         Outcome::Reply(r) => r,
         Outcome::Confirm { .. } => panic!("意外确认"),
     }
 }
 
 fn decoded(r: &Reply) -> Draft {
-    Draft::decode(&r.draft).unwrap()
+    Draft::decode(&r.draft, &catalog::defaults()).unwrap()
 }
 
 #[test]
@@ -57,7 +58,15 @@ fn menu_summary() {
 #[test]
 fn confirm_returns_draft() {
     let d = draft();
-    match step(d.clone(), "action", "✅ 确认记账", now()).unwrap() {
+    match step(
+        d.clone(),
+        "action",
+        "✅ 确认记账",
+        now(),
+        &catalog::defaults(),
+    )
+    .unwrap()
+    {
         Outcome::Confirm {
             draft,
             amount_cents,
@@ -111,7 +120,7 @@ fn tags_replace_and_clear() {
     let r = reply(decoded(&r), "tags", "");
     assert!(decoded(&r).tags.is_empty());
 
-    assert!(step(draft(), "tags", "不存在", now()).is_err());
+    assert!(step(draft(), "tags", "不存在", now(), &catalog::defaults()).is_err());
 }
 
 #[test]
@@ -146,16 +155,16 @@ fn more_fields() {
 #[test]
 fn rejects_invalid_input() {
     assert!(matches!(
-        step(draft(), "nope", "", now()),
+        step(draft(), "nope", "", now(), &catalog::defaults()),
         Err(FlowError::UnknownField(_))
     ));
-    assert!(step(draft(), "action", "删库", now()).is_err());
-    assert!(step(draft(), "account", "现金", now()).is_err());
-    assert!(Draft::decode("not-base64!").is_err());
+    assert!(step(draft(), "action", "删库", now(), &catalog::defaults()).is_err());
+    assert!(step(draft(), "account", "现金", now(), &catalog::defaults()).is_err());
+    assert!(Draft::decode("not-base64!", &catalog::defaults()).is_err());
 
     let mut d = draft();
     d.category = "不存在".to_owned();
-    assert!(Draft::decode(&d.encode()).is_err());
+    assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_err());
 }
 
 #[test]
@@ -175,9 +184,9 @@ fn dynamic_actions_round_trip() {
         assert_eq!(reply(d.clone(), "action", option).field, field);
     }
     assert!(
-        matches!(step(d.clone(), "action", menu.options.last().unwrap(), now()).unwrap(), Outcome::Confirm { draft, .. } if draft == d)
+        matches!(step(d.clone(), "action", menu.options.last().unwrap(), now(), &catalog::defaults()).unwrap(), Outcome::Confirm { draft, .. } if draft == d)
     );
-    assert!(step(d, "action", "💰 金额 · 99.00", now()).is_err());
+    assert!(step(d, "action", "💰 金额 · 99.00", now(), &catalog::defaults()).is_err());
 }
 
 #[test]
@@ -192,7 +201,7 @@ fn decorated_choices_store_plain_values() {
     assert_eq!(decoded(&r).tags, ["恋爱"]);
     let r = reply(decoded(&r), "kind", "↗️ 收入");
     assert_eq!(decoded(&r).kind, Kind::Income);
-    assert!(step(draft(), "account", "🛑 微信", now()).is_err());
+    assert!(step(draft(), "account", "🛑 微信", now(), &catalog::defaults()).is_err());
 }
 
 #[test]
@@ -218,7 +227,14 @@ fn missing_amount_blocks_confirm() {
     let r = reply(decoded(&r), "amount", "12");
     assert!(r.summary.is_empty());
     assert!(matches!(
-        step(decoded(&r), "action", "✅ 确认记账", now()).unwrap(),
+        step(
+            decoded(&r),
+            "action",
+            "✅ 确认记账",
+            now(),
+            &catalog::defaults()
+        )
+        .unwrap(),
         Outcome::Confirm {
             amount_cents: 1200,
             ..
@@ -230,11 +246,14 @@ fn missing_amount_blocks_confirm() {
 fn draft_validation() {
     let mut d = draft();
     d.amount_cents = Some(0);
-    assert!(Draft::decode(&d.encode()).is_err());
+    assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_err());
     let mut d = draft();
     d.subcategory = Some("打车".to_owned());
-    assert!(Draft::decode(&d.encode()).is_err(), "二级须属于当前一级");
+    assert!(
+        Draft::decode(&d.encode(), &catalog::defaults()).is_err(),
+        "二级须属于当前一级"
+    );
     let mut d = draft();
     d.amount_cents = None;
-    assert!(Draft::decode(&d.encode()).is_ok());
+    assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_ok());
 }

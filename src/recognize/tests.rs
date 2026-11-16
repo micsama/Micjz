@@ -1,6 +1,7 @@
 use chrono::TimeZone;
 
 use super::*;
+use crate::catalog;
 
 fn now() -> DateTime<FixedOffset> {
     flow::tz()
@@ -12,6 +13,7 @@ fn draft(json: &str) -> Draft {
     build_draft(
         Output::from_json(&serde_json::from_str(json).unwrap()),
         now(),
+        &catalog::defaults(),
     )
 }
 
@@ -72,7 +74,12 @@ fn unparseable_output_fails_whole() {
 #[tokio::test]
 async fn mock_always_ok() {
     let r = Recognizer::Mock
-        .recognize(b"\x89PNG\r\n\x1a\n", "image/png", now())
+        .recognize(
+            b"\x89PNG\r\n\x1a\n",
+            "image/png",
+            now(),
+            &catalog::defaults(),
+        )
         .await;
     assert_eq!(r.outcome, Outcome::Ok);
     assert!(r.prompt.contains("coffee: 餐饮/咖啡饮品"));

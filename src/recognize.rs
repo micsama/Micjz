@@ -14,7 +14,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use serde_json::{Value, json};
 
 use crate::{
-    catalog::{self, OTHER},
+    catalog::{Catalog, OTHER},
     flow::{self, Draft, Kind},
 };
 
@@ -87,8 +87,9 @@ impl Recognizer {
         image: &[u8],
         mime: &str,
         now: DateTime<FixedOffset>,
+        cat: &Catalog,
     ) -> Recognized {
-        let prompt = prompt(now);
+        let prompt = prompt(now, cat);
         let parameters = parameters().to_string();
         let ds = match self {
             Recognizer::Mock => {
@@ -116,10 +117,10 @@ impl Recognizer {
             Err(e) => (format!("{e:#}"), Err(e)),
         };
         let (draft, outcome, reason) = match parsed {
-            Ok(out) if out.ok => (build_draft(out, now), Outcome::Ok, None),
+            Ok(out) if out.ok => (build_draft(out, now, cat), Outcome::Ok, None),
             Ok(out) => {
                 let reason = out.reason.clone().unwrap_or_else(|| "未说明".to_owned());
-                (build_draft(out, now), Outcome::Rejected, Some(reason))
+                (build_draft(out, now, cat), Outcome::Rejected, Some(reason))
             }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "识别失败，返回空白草稿");
@@ -226,7 +227,7 @@ fn parse_output(raw: &str) -> anyhow::Result<Output> {
 }
 
 /// 逐字段校验；不合规的字段置空（分类回到「其他」，时间回到当前），并记日志。
-fn build_draft(out: Output, now: DateTime<FixedOffset>) -> Draft {
+fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
     let mut dropped = Vec::new();
     let mut check = |name: &'static str, raw: &Option<String>, ok: bool| {
         if raw.is_some() && !ok {
@@ -240,13 +241,10 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>) -> Draft {
     };
     let amount_cents = out.amount.as_deref().and_then(flow::parse_cents);
     check("amount", &out.amount, amount_cents.is_some());
-    let category = out
-        .category
-        .as_deref()
-        .and_then(|k| catalog::by_key(kind, k));
+    let category = out.category.as_deref().and_then(|k| cat.by_key(kind, k));
     check("category", &out.category, category.is_some());
     let (category, subcategory) = category.unwrap_or((OTHER, None));
-    let account = out.account.filter(|a| catalog::accounts().contains(a));
+    let account = out.account.filter(|a| cat.accounts.contains(a));
     // 时间与识别时刻相差不到 30 分钟就用识别时刻：截图只到分钟，当前时间更准。
     let parsed_at = out.occurred_at.as_deref().and_then(parse_local_time);
     check("occurred_at", &out.occurred_at, parsed_at.is_some());
@@ -317,16 +315,16 @@ pub fn check_prompt() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("{e:#}"))
 }
 
-fn prompt(now: DateTime<FixedOffset>) -> String {
+fn prompt(now: DateTime<FixedOffset>, cat: &Catalog) -> String {
     let categories = [Kind::Expense, Kind::Income]
-        .map(|kind| format!("{}:\n{}", kind.as_str(), catalog::key_lines(kind)))
+        .map(|kind| format!("{}:\n{}", kind.as_str(), cat.key_lines(kind)))
         .join("\n");
     TEMPLATE
         .as_ref()
         .expect("启动时已校验 prompt.txt")
         .replace("{now}", &now.format("%Y-%m-%d %H:%M:%S").to_string())
         .replace("{categories}", &categories)
-        .replace("{accounts}", &catalog::accounts().join(" / "))
+        .replace("{accounts}", &cat.accounts.join(" / "))
 }
 
 #[cfg(test)]

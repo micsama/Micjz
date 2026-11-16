@@ -4,7 +4,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{self, OTHER};
+use crate::catalog::{Catalog, OTHER};
 
 pub fn tz() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).expect("固定偏移合法")
@@ -84,19 +84,22 @@ impl Draft {
         URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).expect("Draft 可序列化"))
     }
 
-    pub fn decode(s: &str) -> Result<Draft, FlowError> {
+    /// 解码并按当前分类、账户、标签校验。
+    pub fn decode(s: &str, cat: &Catalog) -> Result<Draft, FlowError> {
         let invalid = |e: &dyn std::fmt::Display| FlowError::InvalidDraft(e.to_string());
         let bytes = URL_SAFE_NO_PAD.decode(s).map_err(|e| invalid(&e))?;
         let draft: Draft = serde_json::from_slice(&bytes).map_err(|e| invalid(&e))?;
-        draft.validate().map_err(|e| invalid(&e))?;
+        draft.validate(cat).map_err(|e| invalid(&e))?;
         Ok(draft)
     }
 
-    fn validate(&self) -> Result<(), &'static str> {
+    fn validate(&self, cat: &Catalog) -> Result<(), &'static str> {
         if self.amount_cents.is_some_and(|c| c <= 0) {
             return Err("金额须大于 0");
         }
-        let category = catalog::category(self.kind, &self.category).ok_or("分类不存在")?;
+        let category = cat
+            .category(self.kind, &self.category)
+            .ok_or("分类不存在")?;
         if self
             .subcategory
             .as_deref()
@@ -107,11 +110,11 @@ impl Draft {
         if self
             .account
             .as_ref()
-            .is_some_and(|a| !catalog::accounts().contains(a))
+            .is_some_and(|a| !cat.accounts.contains(a))
         {
             return Err("账户不存在");
         }
-        if self.tags.iter().any(|t| !catalog::tags().contains(t)) {
+        if self.tags.iter().any(|t| !cat.tags.contains(t)) {
             return Err("标签不存在");
         }
         Ok(())
@@ -277,6 +280,7 @@ pub fn step(
     field: &str,
     value: &str,
     now: DateTime<FixedOffset>,
+    cat: &Catalog,
 ) -> Result<Outcome, FlowError> {
     let invalid = || FlowError::InvalidValue {
         field: field.to_owned(),
@@ -310,25 +314,23 @@ pub fn step(
                 Action::Kind => {
                     ask(&draft, StepType::Choose, "kind").options(["↘️ 支出", "↗️ 收入"])
                 }
-                Action::Category => ask_category(&draft, now),
+                Action::Category => ask_category(&draft, now, cat),
                 Action::Account => ask(&draft, StepType::Choose, "account")
-                    .options(decorated(strs(catalog::accounts()), "💳")),
+                    .options(decorated(strs(&cat.accounts), "💳")),
                 Action::Merchant => ask(&draft, StepType::Text, "merchant")
                     .default(draft.merchant.clone().unwrap_or_default()),
                 Action::Time => ask(&draft, StepType::Date, "occurred_at")
                     .default(draft.occurred_at.to_rfc3339()),
                 Action::Tags => ask(&draft, StepType::ChooseMany, "tags")
-                    .options(decorated(strs(catalog::tags()), "🏷️")),
+                    .options(decorated(strs(&cat.tags), "🏷️")),
                 Action::Note => ask(&draft, StepType::Text, "note")
                     .default(draft.note.clone().unwrap_or_default()),
             }
         }
         "category" => {
-            let names = catalog::categories(draft.kind)
-                .iter()
-                .map(|c| c.name.as_str());
+            let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
             let name = choice(value, names, "🗂️").ok_or_else(invalid)?;
-            let category = catalog::category(draft.kind, name).ok_or_else(invalid)?;
+            let category = cat.category(draft.kind, name).ok_or_else(invalid)?;
             draft.category = category.name.clone();
             draft.subcategory = None;
             if category.subs.is_empty() {
@@ -339,7 +341,9 @@ pub fn step(
             }
         }
         "subcategory" => {
-            let category = catalog::category(draft.kind, &draft.category).ok_or_else(invalid)?;
+            let category = cat
+                .category(draft.kind, &draft.category)
+                .ok_or_else(invalid)?;
             let sub = choice(value, category.sub_names(), "📂").ok_or_else(invalid)?;
             draft.subcategory = Some(sub.to_owned());
             menu(&draft, now)
@@ -352,7 +356,7 @@ pub fn step(
             None => ask_amount(&draft).warn(&format!("金额无效：{value}")),
         },
         "account" => {
-            let account = choice(value, strs(catalog::accounts()), "💳").ok_or_else(invalid)?;
+            let account = choice(value, strs(&cat.accounts), "💳").ok_or_else(invalid)?;
             draft.account = Some(account.to_owned());
             menu(&draft, now)
         }
@@ -362,7 +366,7 @@ pub fn step(
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .map(|t| {
-                    choice(t, strs(catalog::tags()), "🏷️")
+                    choice(t, strs(&cat.tags), "🏷️")
                         .map(str::to_owned)
                         .ok_or_else(invalid)
                 })
@@ -394,7 +398,7 @@ pub fn step(
                 draft.kind = kind;
                 draft.category = OTHER.to_owned();
                 draft.subcategory = None;
-                ask_category(&draft, now)
+                ask_category(&draft, now, cat)
             }
         }
         _ => return Err(FlowError::UnknownField(field.to_owned())),
@@ -402,10 +406,8 @@ pub fn step(
     Ok(Outcome::Reply(reply))
 }
 
-fn ask_category(draft: &Draft, now: DateTime<FixedOffset>) -> Reply {
-    let names = catalog::categories(draft.kind)
-        .iter()
-        .map(|c| c.name.as_str());
+fn ask_category(draft: &Draft, now: DateTime<FixedOffset>, cat: &Catalog) -> Reply {
+    let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
     Reply::ask(draft, now, StepType::Choose, "category").options(decorated(names, "🗂️"))
 }
 
@@ -444,7 +446,7 @@ fn amount_label(draft: &Draft) -> String {
         .unwrap_or_else(|| "请补充".to_owned())
 }
 
-fn category_label(draft: &Draft) -> String {
+pub fn category_label(draft: &Draft) -> String {
     match &draft.subcategory {
         Some(sub) => format!("{}/{sub}", draft.category),
         None => draft.category.clone(),

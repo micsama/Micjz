@@ -166,8 +166,14 @@ async fn edit_category_and_tags_before_confirm() {
     let (_, done) = s.step(&menu, "✅ 确认记账").await;
     assert_done(&done, "交通/打车");
     assert_eq!(
-        s.count("SELECT COUNT(*) FROM entry_tags WHERE tag = '恋爱'"),
-        1
+        s.count(
+            "SELECT COUNT(*) FROM entries e
+             JOIN categories c ON c.id = e.category_id AND c.key = 'taxi'
+             JOIN entry_tags et ON et.entry_id = e.id
+             JOIN tags t ON t.id = et.tag_id AND t.name = '恋爱'"
+        ),
+        1,
+        "账目按 id 引用二级分类和标签"
     );
 }
 

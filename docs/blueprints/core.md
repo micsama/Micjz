@@ -6,18 +6,18 @@
 
 ```text
 src/
-  main.rs        读配置、加载 catalog / prompt、启动
+  main.rs        读配置、启动服务或执行管理命令
   api.rs         HTTP：鉴权、入口校验、访问日志、图片留存
   flow.rs        Draft、主菜单与步骤（纯函数，不碰 IO）
-  catalog.rs     加载并校验 catalog.toml（分类、模型 key、账户、标签）
+  catalog.rs     分类、账户、标签：读快照、初始数据、命令行增删改
   recognize.rs   调 DeepSeek，逐字段校验成草稿；mock 返回假账单
   db.rs          建表、入账、识别留存
-catalog.toml     分类、账户、标签唯一来源，顺序即菜单顺序
+  seed.sql       新库的初始分类、账户、标签
 prompt.txt       提示词模板，占位符 {now} {categories} {accounts}
 config.toml      不入库，提交 config.example.toml
 ```
 
-`catalog.toml`、`prompt.txt` 从进程工作目录读取，启动时校验，有误直接退出；改后重启生效。
+`prompt.txt` 从进程工作目录读取，启动时校验，有误直接退出。分类、账户、标签每个请求从库里读，命令行改完立即生效，见 `docs/blueprints/categories-db.md`。
 
 ## 2. 配置
 
@@ -60,7 +60,7 @@ DeepSeek API Key 读环境变量 `DEEPSEEK_API_KEY`，仅在配置了 `[deepseek
 - 不在顶部提示：看不出的字段在菜单里显示「请补充」。金额为空时点确认先转去填金额，数字框预填 0（0 不能入账）。
 - 模型说不是支付页 → 照样给草稿，原因只进识别记录和日志。
 - 调用失败或返回不是 JSON → 空白草稿；完整错误链进识别记录和日志。
-- `item`（商品名）作为备注默认值；分类用 `catalog.toml` 里的英文 key，映射回一级 / 二级。
+- `item`（商品名）作为备注默认值；分类用库里叶子分类的英文 key，映射回一级 / 二级。
 - 交易时间与识别时刻相差不到 30 分钟就用识别时刻（截图只到分钟）。
 - 请求参数（`parameters()`）只有一份，发请求和落库都用它。
 
@@ -81,7 +81,7 @@ struct Draft {
 }
 ```
 
-JSON → base64url，快捷指令原样回传；`/step` 解码后按 catalog 校验（分类、账户、标签须在列表内，金额若有须 > 0），不合法 400。
+JSON → base64url，快捷指令原样回传；草稿里存名称，入账时换成 id。`/step` 解码后按当前库里的分类、账户、标签校验（分类、账户、标签须在列表内，金额若有须 > 0），不合法 400。
 
 ## 6. 主菜单与步骤
 
@@ -105,7 +105,7 @@ JSON → base64url，快捷指令原样回传；`/step` 解码后按 catalog 校
 
 ## 7. 存储
 
-`entries` / `entry_tags` 是最终账目；`recognitions` 每次识别一行，存图片 hash / 大小 / 留存路径、实际 prompt、参数、DeepSeek 原始响应、原因、原始草稿 JSON、阶段耗时，确认时同一事务写 `confirmed_at`。表结构见 `src/db.rs`。
+`entries` / `entry_tags` 是最终账目，按 id 引用 `categories` / `accounts` / `tags`；`recognitions` 每次识别一行，存图片 hash / 大小 / 留存路径、实际 prompt、参数、DeepSeek 原始响应、原因、原始草稿 JSON、阶段耗时，确认时同一事务写 `confirmed_at`。表结构见 `src/db.rs`。
 
 - 确认：`ON CONFLICT(id) DO NOTHING`，重复确认只记一笔，仍返回「已记账」。
 - 图片：识别不等留存；后台任务写 `images/<原图 sha256>.<png|jpg>`，PNG 无损重压更小才用，失败只记日志。

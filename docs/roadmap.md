@@ -61,9 +61,8 @@ entries
   id           TEXT PK      draft 里的 ID（幂等键）
   kind         TEXT         expense | income
   amount_cents INTEGER      金额，单位分，人民币
-  category     TEXT         一级分类
-  subcategory  TEXT NULL    二级分类（收入没有二级）
-  account      TEXT NULL    账户，从固定列表选（截图看不出就空）
+  category_id  INTEGER      → categories，最细一级（选了二级就是二级）
+  account_id   INTEGER NULL → accounts（截图看不出就空）
   merchant     TEXT NULL
   occurred_at  TEXT         交易时间；截图没有则用确认时间
   note         TEXT NULL
@@ -71,11 +70,15 @@ entries
 
 entry_tags
   entry_id     TEXT
-  tag          TEXT         纯展示/筛选用的标签，如「恋爱」
-  PRIMARY KEY (entry_id, tag)
+  tag_id       INTEGER      → tags，纯展示/筛选用的标签，如「恋爱」
+  PRIMARY KEY (entry_id, tag_id)
+
+categories (id, kind, parent_id, name, key)   两级分类，key 给模型
+accounts   (id, name)
+tags       (id, name)
 ```
 
-分类、账户、标签当前从 `catalog.toml` 加载，提示词从 `prompt.txt` 加载；详见 [识别留存契约](blueprints/recognition-retention.md)。
+分类、账户、标签存数据库，命令行增删改，有账目引用的不能删；见 [分类进库](blueprints/categories-db.md)。提示词从 `prompt.txt` 加载。
 
 识别规则（写进 prompt，服务器再校验）：
 
@@ -109,7 +112,7 @@ entry_tags
 ### v2 能看能改
 
 - 极简网页：按月列表、编辑、删除、CSV 导出。
-- 分类、账户、标签挪进 SQLite，网页管理。
+- 分类、账户、标签的网页管理（已在 SQLite，目前用命令行）。
 
 ### v3 简单统计
 

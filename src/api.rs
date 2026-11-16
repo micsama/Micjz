@@ -20,6 +20,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    catalog::Catalog,
     db::{self, Db},
     flow::{self, Draft, Outcome, Reply},
     recognize::{self, Recognizer},
@@ -85,6 +86,15 @@ fn bad_request(reason: impl std::fmt::Display) -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, format!("请求无效：{reason}"))
 }
 
+fn load_catalog(state: &AppState) -> Result<Catalog, ApiError> {
+    state.db.catalog().map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("读取分类失败：{e}"),
+        )
+    })
+}
+
 async fn auth(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let expected = format!("Bearer {}", state.token);
     let ok = req
@@ -129,8 +139,9 @@ async fn recognize_handler(
         }
     });
 
+    let cat = load_catalog(&state)?;
     let now = flow::now();
-    let r = state.recognizer.recognize(&image, mime, now).await;
+    let r = state.recognizer.recognize(&image, mime, now, &cat).await;
     let timings = serde_json::json!({ "upload_ms": upload_ms, "model_ms": r.model_ms }).to_string();
     let image_meta = db::Image {
         sha256: &sha,
@@ -211,9 +222,10 @@ async fn step_handler(
     body: Result<Json<StepRequest>, JsonRejection>,
 ) -> Result<Json<Reply>, ApiError> {
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
-    let before = Draft::decode(&req.draft).map_err(bad_request)?;
+    let cat = load_catalog(&state)?;
+    let before = Draft::decode(&req.draft, &cat).map_err(bad_request)?;
     tracing::info!(id = %before.id, field = %req.field, "步骤");
-    match flow::step(before, &req.field, &req.value, flow::now()).map_err(bad_request)? {
+    match flow::step(before, &req.field, &req.value, flow::now(), &cat).map_err(bad_request)? {
         Outcome::Reply(reply) => {
             tracing::info!(next = ?reply.step, field = %reply.field, "下一步");
             Ok(Json(reply))
@@ -227,10 +239,10 @@ async fn step_handler(
                 Ok(Json(Reply::done(flow::saved_message(&draft, amount_cents))))
             }
             Err(e) => {
-                tracing::error!(id = %draft.id, error = ?e, "入账失败");
+                tracing::error!(id = %draft.id, error = %format!("{e:#}"), "入账失败");
                 Err(ApiError(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("入账失败，未记账：{e}"),
+                    format!("入账失败，未记账：{e:#}"),
                 ))
             }
         },

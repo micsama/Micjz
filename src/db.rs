@@ -1,24 +1,50 @@
-//! SQLite：`entries`/`entry_tags` 是最终账目，`recognitions` 留存每次识别的输入输出。
+//! SQLite：`entries`/`entry_tags` 是最终账目，引用 `categories`/`accounts`/`tags`；
+//! `recognitions` 留存每次识别的输入输出。
 //! 只认当前表结构；结构变化写 `deploy/` 下的 SQL 脚本手动执行。
 
-use std::{path::Path, sync::Mutex};
+use std::{
+    path::Path,
+    sync::{Mutex, MutexGuard},
+};
 
 use anyhow::Context;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{
+    catalog::{self, Catalog},
     flow::{self, Draft},
     recognize::Recognized,
 };
 
-const SCHEMA: &str = "
+pub const SCHEMA: &str = "
+-- parent_id 为空是一级；每个分类都有模型 key。外键保证有账目或二级的分类删不掉。
+CREATE TABLE IF NOT EXISTS categories (
+  id        INTEGER PRIMARY KEY,
+  kind      TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
+  parent_id INTEGER REFERENCES categories(id),
+  name      TEXT NOT NULL,
+  key       TEXT NOT NULL UNIQUE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name
+  ON categories(kind, coalesce(parent_id, 0), name);
+
+CREATE TABLE IF NOT EXISTS accounts (
+  id   INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+  id   INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE
+);
+
+-- category_id 指向最细一级：选了二级就是二级。
 CREATE TABLE IF NOT EXISTS entries (
   id           TEXT PRIMARY KEY,
   kind         TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
-  category     TEXT NOT NULL,
-  subcategory  TEXT,
-  account      TEXT,
+  category_id  INTEGER NOT NULL REFERENCES categories(id),
+  account_id   INTEGER REFERENCES accounts(id),
   merchant     TEXT,
   occurred_at  TEXT NOT NULL,
   note         TEXT,
@@ -29,8 +55,8 @@ CREATE INDEX IF NOT EXISTS idx_entries_occurred ON entries(occurred_at);
 
 CREATE TABLE IF NOT EXISTS entry_tags (
   entry_id TEXT NOT NULL REFERENCES entries(id),
-  tag      TEXT NOT NULL,
-  PRIMARY KEY (entry_id, tag)
+  tag_id   INTEGER NOT NULL REFERENCES tags(id),
+  PRIMARY KEY (entry_id, tag_id)
 );
 
 -- outcome：ok / rejected（模型说不是支付页）/ error（调用或解析失败）
@@ -72,28 +98,41 @@ impl Db {
             Connection::open(path).with_context(|| format!("打开数据库 {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA).context("建表")?;
+        catalog::seed(&conn)?;
         Ok(Db(Mutex::new(conn)))
     }
 
+    pub fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.0.lock().expect("数据库锁未中毒")
+    }
+
+    /// 当前分类、账户、标签。
+    pub fn catalog(&self) -> rusqlite::Result<Catalog> {
+        catalog::load(&self.conn())
+    }
+
     /// 以草稿 ID 入账并标记识别已确认，同一事务；已存在则不变（重复确认是同一笔）。
-    /// 返回是否新插入。
-    pub fn save(&self, d: &Draft, amount_cents: i64) -> rusqlite::Result<bool> {
-        let mut conn = self.0.lock().expect("数据库锁未中毒");
+    /// 名称在这里换成 id；草稿期间被删改的分类、账户、标签会让入账失败。返回是否新插入。
+    pub fn save(&self, d: &Draft, amount_cents: i64) -> anyhow::Result<bool> {
+        let mut conn = self.conn();
         let tx = conn.transaction()?;
         let now = flow::now().to_rfc3339();
+        let category_id = category_id(&tx, d)?;
+        let account_id = match &d.account {
+            Some(name) => Some(catalog::name_id(&tx, "accounts", name)?),
+            None => None,
+        };
         let inserted = tx.execute(
-            "INSERT INTO entries (id, kind, amount_cents, category, subcategory, account,
-                                  merchant, occurred_at, note, created_at,
-                                  draft_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO entries (id, kind, amount_cents, category_id, account_id,
+                                  merchant, occurred_at, note, created_at, draft_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO NOTHING",
             params![
                 d.id,
                 d.kind.as_str(),
                 amount_cents,
-                d.category,
-                d.subcategory,
-                d.account,
+                category_id,
+                account_id,
                 d.merchant,
                 d.occurred_at.to_rfc3339(),
                 d.note,
@@ -104,8 +143,8 @@ impl Db {
         if inserted {
             for tag in &d.tags {
                 tx.execute(
-                    "INSERT INTO entry_tags (entry_id, tag) VALUES (?1, ?2)",
-                    params![d.id, tag],
+                    "INSERT INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
+                    params![d.id, catalog::name_id(&tx, "tags", tag)?],
                 )?;
             }
         }
@@ -124,7 +163,7 @@ impl Db {
         image: &Image<'_>,
         timings: &str,
     ) -> rusqlite::Result<()> {
-        self.0.lock().expect("数据库锁未中毒").execute(
+        self.conn().execute(
             "INSERT INTO recognitions (draft_id, at, outcome, model, elapsed_ms, image_sha256,
                                        image_bytes, image_path, prompt, parameters, raw, reason,
                                        origin, timings)
@@ -148,6 +187,19 @@ impl Db {
         )?;
         Ok(())
     }
+}
+
+fn category_id(tx: &Transaction<'_>, d: &Draft) -> anyhow::Result<i64> {
+    tx.query_row(
+        "SELECT coalesce(s.id, c.id) FROM categories c
+         LEFT JOIN categories s ON s.parent_id = c.id AND s.name = ?3
+         WHERE c.kind = ?1 AND c.parent_id IS NULL AND c.name = ?2
+           AND (?3 IS NULL OR s.id IS NOT NULL)",
+        params![d.kind.as_str(), d.category, d.subcategory],
+        |r| r.get(0),
+    )
+    .optional()?
+    .with_context(|| format!("分类已不存在：{}", flow::category_label(d)))
 }
 
 #[cfg(test)]

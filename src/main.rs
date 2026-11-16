@@ -39,13 +39,21 @@ async fn main() -> anyhow::Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("安装 rustls 加密实现失败"))?;
 
-    let path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.toml".to_owned());
+    // micjz [config.toml] [管理命令...]：不带命令即启动服务。
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let path = if args.first().is_some_and(|a| a.ends_with(".toml")) {
+        args.remove(0)
+    } else {
+        "config.toml".to_owned()
+    };
     let text = std::fs::read_to_string(&path).with_context(|| format!("读取配置 {path}"))?;
     let config: Config = toml::from_str(&text).with_context(|| format!("解析配置 {path}"))?;
     anyhow::ensure!(!config.token.is_empty(), "token 不能为空");
-    catalog::check()?;
+    let db = db::Db::open(&config.db_path)?;
+    if !args.is_empty() {
+        println!("{}", catalog::cli(&mut db.conn(), &args)?);
+        return Ok(());
+    }
     recognize::check_prompt()?;
     let recognizer = match config.deepseek {
         Some(ds) => {
@@ -69,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let state = api::AppState {
         token: config.token,
         recognizer,
-        db: db::Db::open(&config.db_path)?,
+        db,
         images_dir: config
             .db_path
             .parent()
