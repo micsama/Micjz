@@ -130,7 +130,7 @@ fn switch_kind_resets_category() {
     let d = decoded(&r);
     assert_eq!(
         (d.kind, d.category.as_str(), d.subcategory),
-        (Kind::Income, OTHER, None)
+        (Kind::Income, "其他", None)
     );
 
     let r = reply(draft(), "kind", "↘️ 支出");

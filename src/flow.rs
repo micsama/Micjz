@@ -4,14 +4,22 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Catalog, OTHER};
+use crate::catalog::Catalog;
 
+/// 显示和理解时间用的时区；以后加时区设置只改这里。
 pub fn tz() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).expect("固定偏移合法")
 }
 
 pub fn now() -> DateTime<FixedOffset> {
     Utc::now().with_timezone(&tz())
+}
+
+/// 落库的时间：UTC，到秒。按时间段查询直接比较字符串，所以只有这一种写法。
+pub fn stamp(at: DateTime<FixedOffset>) -> String {
+    at.with_timezone(&Utc)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +80,7 @@ impl Draft {
             id: uuid::Uuid::now_v7().to_string(),
             kind: Kind::Expense,
             amount_cents: None,
-            category: OTHER.to_owned(),
+            category: cat.fallback(Kind::Expense).to_owned(),
             subcategory: None,
             account: cat.default_account().to_owned(),
             merchant: None,
@@ -391,7 +399,7 @@ pub fn step(
                 menu(&draft, now)
             } else {
                 draft.kind = kind;
-                draft.category = OTHER.to_owned();
+                draft.category = cat.fallback(kind).to_owned();
                 draft.subcategory = None;
                 ask_category(&draft, now, cat)
             }

@@ -14,7 +14,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use serde_json::{Value, json};
 
 use crate::{
-    catalog::{Catalog, OTHER},
+    catalog::Catalog,
     flow::{self, Draft, Kind},
 };
 
@@ -247,7 +247,7 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
     check("amount", &out.amount, amount_cents.is_some());
     let category = out.category.as_deref().and_then(|k| cat.by_key(kind, k));
     check("category", &out.category, category.is_some());
-    let (category, subcategory) = category.unwrap_or((OTHER, None));
+    let (category, subcategory) = category.unwrap_or((cat.fallback(kind), None));
     let account = out.account.clone().filter(|a| cat.has_account(a));
     check("account", &out.account, account.is_some());
     // 时间与识别时刻相差不到 30 分钟就用识别时刻：截图只到分钟，当前时间更准。

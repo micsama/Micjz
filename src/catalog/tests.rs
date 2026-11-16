@@ -16,8 +16,8 @@ fn run(conn: &mut Connection, cmd: &str) -> anyhow::Result<String> {
 #[test]
 fn seed_data() {
     let cat = load(&db()).unwrap();
-    assert!(cat.category(Kind::Expense, OTHER).is_some());
-    assert!(cat.category(Kind::Income, OTHER).is_some());
+    assert_eq!(cat.fallback(Kind::Expense), "其他");
+    assert_eq!(cat.fallback(Kind::Income), "其他");
     assert_eq!(cat.account_names().collect::<Vec<_>>(), ["微信", "银行卡"]);
     assert_eq!(cat.default_account(), "微信");
     assert_eq!(
@@ -59,7 +59,13 @@ fn add_rename_remove() {
     run(&mut conn, "category rm 支出 学习/图书").unwrap();
     run(&mut conn, "category rm 支出 学习").unwrap();
     assert!(run(&mut conn, "category rm 支出 其他").is_err());
-    assert!(run(&mut conn, "category rename 收入 其他 杂项").is_err());
+    run(&mut conn, "category rename 收入 其他 杂项").unwrap();
+    assert_eq!(
+        load(&conn).unwrap().fallback(Kind::Income),
+        "杂项",
+        "兜底按 key 认，可以改名"
+    );
+    assert!(run(&mut conn, "category rm 收入 杂项").is_err());
 
     run(&mut conn, "account add 现金").unwrap();
     assert!(run(&mut conn, "account add 现金").is_err());
@@ -90,7 +96,7 @@ fn add_rename_remove() {
     run(&mut conn, "category move 支出 其他 1").unwrap();
     let cat = load(&conn).unwrap();
     let first = &cat.categories(Kind::Expense)[0];
-    assert_eq!(first.name, OTHER);
+    assert_eq!(first.name, "其他");
     assert_eq!(
         cat.category(Kind::Expense, "餐饮").unwrap().subs[0].1,
         "聚餐"
@@ -112,13 +118,27 @@ fn used_ones_cannot_be_removed() {
                               created_at)
          SELECT 'e1', 'expense', 100, c.id, a.id, 'now', 'now'
          FROM categories c, accounts a WHERE c.key = 'coffee' AND a.name = '微信';
-         INSERT INTO entry_tags SELECT 'e1', id FROM tags WHERE name = '恋爱';",
+         INSERT INTO entry_tags SELECT 'e1', id FROM tags WHERE name = '恋爱';
+         INSERT INTO accounts (name, position) VALUES ('现金', 9);
+         INSERT INTO entries (id, kind, amount_cents, account_id, to_account_id, occurred_at,
+                              created_at)
+         SELECT 'e2', 'transfer', 100, a.id, b.id, 'now', 'now'
+         FROM accounts a, accounts b WHERE a.name = '银行卡' AND b.name = '现金';",
     )
     .unwrap();
     let err = run(&mut conn, "category rm 支出 餐饮/咖啡饮品").unwrap_err();
     assert!(err.to_string().contains("1 笔账"), "{err}");
     assert!(run(&mut conn, "account rm 微信").is_err());
     assert!(run(&mut conn, "tag rm 恋爱").is_err());
+    assert!(
+        run(&mut conn, "account rm 现金").is_err(),
+        "转入账户也算在用"
+    );
+    assert!(
+        run(&mut conn, "account list")
+            .unwrap()
+            .contains("现金  1 笔")
+    );
     run(&mut conn, "category rename 支出 餐饮/咖啡饮品 咖啡").unwrap();
     assert!(
         run(&mut conn, "category list")

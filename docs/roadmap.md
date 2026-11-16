@@ -49,7 +49,7 @@
 - 主菜单平铺金额、类型、分类、账户、商家、时间、标签、备注和确认；显示 emoji 与当前值，原样回传，无「更多」层。
 - 两级分类：先返回一级选项，选完再返回二级选项；快捷指令不知道有几层。
 - 取消：用系统选择框自带的取消，直接结束。
-- 无状态：`draft` 在快捷指令里来回传，服务器不存草稿。`draft` 里带服务器生成的 ID，确认时以它为主键入账，重复提交只记一笔。
+- 无状态：`draft` 在快捷指令里来回传，服务器不存草稿。`draft` 里带服务器生成的 ID，确认时以它为幂等键入账，重复提交只记一笔。
 - 当前已选的标签写在 `summary` 里（快捷指令的多选框没法预选）。
 - 识别永不失败：调用出错、不是支付页、字段不合规都给草稿，看不出的字段留空并在菜单提示，用户补完再确认；金额为空时不能确认。
 - 请求错误、入库失败返回 `done` + 明确的失败文案，绝不显示「已记账」。
@@ -58,30 +58,32 @@
 
 ```text
 entries
-  id           TEXT PK      draft 里的 ID（幂等键）
-  kind         TEXT         expense | income
-  amount_cents INTEGER      金额，单位分，人民币
-  category_id  INTEGER      → categories，最细一级（选了二级就是二级）
-  account_id   INTEGER      → accounts（截图看不出就用优先级第一的账户）
-  merchant     TEXT NULL
-  occurred_at  TEXT         交易时间；截图没有则用确认时间
-  note         TEXT NULL
-  created_at   TEXT         确认时刻
+  id             TEXT PK      账目自己的 ID（UUIDv7）
+  recognition_id TEXT NULL    → recognitions，截图来的才有；确认的幂等键
+  kind           TEXT         expense | income | transfer | adjust
+  amount_cents   INTEGER      金额，单位分，人民币；平账是带符号的差额
+  category_id    INTEGER NULL → categories，最细一级；支出、收入必填，其余为空
+  account_id     INTEGER      → accounts（截图看不出就用优先级第一的账户）；转账的转出方
+  to_account_id  INTEGER NULL → accounts，转账的转入方
+  merchant       TEXT NULL
+  occurred_at    TEXT         交易时间，UTC；截图没有则用确认时间
+  note           TEXT NULL
+  created_at     TEXT         入账时刻，UTC
 
 entry_tags
-  entry_id     TEXT
+  entry_id     TEXT         删账目时一起删
   tag_id       INTEGER      → tags，纯展示/筛选用的标签，如「恋爱」
   PRIMARY KEY (entry_id, tag_id)
 
 categories   (id, position, kind, parent_id, name, key)   两级分类，key 给模型
 accounts     (id, position, name, card_type, card_number)   卡号完整存，只把尾号给模型
 tags         (id, name)
-recognitions (draft_id, ...)   一次识别的输入输出和原始草稿；entries.id 指向它
+recognitions (draft_id, ...)   一次识别的输入输出和原始草稿；entries.recognition_id 指向它
 requests     (id, at, ...)     通过鉴权的请求日志
 settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期、每期预算
 ```
 
-完整表结构见 [表结构梳理](blueprints/single-source.md)：每个事实只存一处，表之间用外键连。
+所有表 `STRICT`，时间一律存 UTC、按东八区显示。完整表结构见 [表结构梳理](blueprints/single-source.md) 和 [账目蓝图](blueprints/entries.md)：每个事实只存一处，表之间用外键连。
 
 分类、账户、标签存数据库，命令行增删改，有账目引用的不能删；见 [分类进库](blueprints/categories-db.md)。提示词从 `prompt.txt` 加载。
 
@@ -119,7 +121,7 @@ settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期
 - 极简网页：按记账周期列表、编辑、删除、CSV 导出。交互原型在 `web/`（假数据）。
 - 分类、账户、标签的网页管理（已在 SQLite，目前用命令行）。
 - 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
-- 表结构 v5：账目不再依赖截图、加转账和平账、所有表改 `STRICT`，见 [账目蓝图](blueprints/entries.md)。
+- 表结构 v5：账目不再依赖截图、加转账和平账、所有表改 `STRICT`，见 [账目蓝图](blueprints/entries.md)。已实现（2026-11-16）。
 - 网页记一笔（支出、收入、转账）；财富页显示真实余额，左滑账户平账。
 - 原型里已有的页面都上线（含统计页：收支、分类占比、标签、账户汇总，原 v3 并入），范围和接口草稿见 [网页头脑风暴](brainstorm/web.md)。
 

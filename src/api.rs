@@ -67,7 +67,7 @@ struct Failure(String);
 async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: Next) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_owned();
-    let at = flow::now().to_rfc3339();
+    let at = flow::stamp(flow::now());
     let started = Instant::now();
     let slot = TraceSlot::default();
     req.extensions_mut().insert(slot.clone());

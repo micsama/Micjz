@@ -1,6 +1,6 @@
 # 蓝图：表结构梳理（每个事实只存一处，表之间用外键连）
 
-状态：已实现（2026-11-16）。表结构版本 2 → 3；调试期删库重建，快捷指令不变。之后 v4 加了 `settings` 表，见[设置表](settings.md)。
+状态：已实现（2026-11-16）。表结构版本 2 → 3；调试期删库重建，快捷指令不变。之后 v4 加了 `settings` 表，见[设置表](settings.md)；v5 让账目有自己的 ID、加转账和平账、所有表改 `STRICT`，见[账目蓝图](entries.md)，下文的 `entries` 以那里为准。
 
 ## 一共 7 张表
 
@@ -10,7 +10,7 @@
 | `accounts` | 一个资金账户（银行卡、零钱等） | 命令行增删改 |
 | `tags` | 一个标签 | 命令行增删改 |
 | `recognitions` | 一次识别（一张截图），主键就是草稿 ID | 收到截图、识别完 |
-| `entries` | 一笔账，主键就是草稿 ID | 点「确认记账」 |
+| `entries` | 一笔账；截图来的用 `recognition_id` 指向识别（v5） | 点「确认记账」，v2 起也从网页记 |
 | `entry_tags` | 某笔账打了某个标签 | 点「确认记账」，和 `entries` 同一事务 |
 | `requests` | 一次通过鉴权的 HTTP 请求（访问日志） | 每个请求结束时 |
 
@@ -23,7 +23,8 @@ categories ──< categories (parent_id，两级)
 categories ──< entries.category_id
 accounts   ──< entries.account_id
 entries    ──< entry_tags >── tags
-recognitions ──1:0..1── entries.id        识别了不一定记账
+accounts   ──< entries.to_account_id   转账的转入方（v5）
+recognitions ──1:0..1── entries.recognition_id   识别了不一定记账（v5）
 recognitions ··< requests.draft_id        一次记账过程的所有请求（只按值关联，不设外键）
 ```
 
@@ -144,14 +145,14 @@ CREATE TABLE requests (
 
 ```sql
 -- 模型 vs 最终（调 prompt）
-SELECT r.origin, e.* FROM recognitions r JOIN entries e ON e.id = r.draft_id;
+SELECT r.origin, e.* FROM recognitions r JOIN entries e ON e.recognition_id = r.draft_id;
 
 -- 一次记账的全过程
 SELECT at, path, status, elapsed_ms, field, value, error
 FROM requests WHERE draft_id = ? ORDER BY id;
 
 -- 识别了但没记账
-SELECT * FROM recognitions r WHERE NOT EXISTS (SELECT 1 FROM entries e WHERE e.id = r.draft_id);
+SELECT * FROM recognitions r WHERE NOT EXISTS (SELECT 1 FROM entries e WHERE e.recognition_id = r.draft_id);
 ```
 
 ## 代价

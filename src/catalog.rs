@@ -9,7 +9,13 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::flow::Kind;
 
-pub const OTHER: &str = "其他";
+/// 兜底分类的 key：模型给不出分类、切换类型时用。必须是一级，不能删，可以改名。
+pub fn fallback_key(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Expense => "other",
+        Kind::Income => "other_in",
+    }
+}
 
 pub struct Catalog {
     expense: Vec<Category>,
@@ -106,6 +112,17 @@ impl Catalog {
         self.account_names().any(|a| a == name)
     }
 
+    /// 兜底分类的名称；`load` 已保证存在。
+    pub fn fallback(&self, kind: Kind) -> &str {
+        let key = fallback_key(kind);
+        &self
+            .categories(kind)
+            .iter()
+            .find(|c| c.key == key)
+            .expect("load 已保证兜底分类存在")
+            .name
+    }
+
     /// 识别不出账户时的默认值：优先级第一。
     pub fn default_account(&self) -> &str {
         &self.accounts[0].name
@@ -153,7 +170,7 @@ pub fn defaults() -> Catalog {
     load(&conn).unwrap()
 }
 
-/// 读快照；没有账户时报错（命令行不允许删掉最后一个账户）。
+/// 读快照；没有账户、缺兜底分类时报错（命令行不允许删掉它们）。
 pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
     let accounts = conn
         .prepare("SELECT name, card_type, card_number FROM accounts ORDER BY position, id")?
@@ -202,6 +219,13 @@ pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
                 });
             }
         }
+    }
+    for kind in [Kind::Expense, Kind::Income] {
+        let key = fallback_key(kind);
+        ensure!(
+            catalog.categories(kind).iter().any(|c| c.key == key),
+            "缺少兜底的一级分类（key {key}）"
+        );
     }
     Ok(catalog)
 }
@@ -339,7 +363,6 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
         }
         ["category", "rename", kind, path, new] => {
             let id = category_id(&tx, parse_kind(kind)?, path)?;
-            ensure!(*path != OTHER, "「{OTHER}」是兜底分类，不能改名");
             tx.execute(
                 "UPDATE categories SET name = ?2 WHERE id = ?1",
                 params![id, check_name(new)?],
@@ -347,8 +370,13 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
             format!("已改名 {path} → {new}")
         }
         ["category", "rm", kind, path] => {
-            let id = category_id(&tx, parse_kind(kind)?, path)?;
-            ensure!(*path != OTHER, "「{OTHER}」是兜底分类，不能删");
+            let kind = parse_kind(kind)?;
+            let id = category_id(&tx, kind, path)?;
+            let key: String =
+                tx.query_row("SELECT key FROM categories WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })?;
+            ensure!(key != fallback_key(kind), "{path} 是兜底分类，不能删");
             let subs = count(&tx, "categories WHERE parent_id = ?1", id)?;
             ensure!(subs == 0, "{path} 下还有 {subs} 个二级分类，先删它们");
             let used = count(&tx, "entries WHERE category_id = ?1", id)?;
@@ -394,7 +422,10 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
         }
         [table @ ("account" | "tag"), rest @ ..] => {
             let (table, used_sql) = match *table {
-                "account" => ("accounts", "entries WHERE account_id = ?1"),
+                "account" => (
+                    "accounts",
+                    "entries WHERE ?1 IN (account_id, to_account_id)",
+                ),
                 _ => ("tags", "entry_tags WHERE tag_id = ?1"),
             };
             match rest {
@@ -487,7 +518,7 @@ fn count(tx: &Transaction<'_>, from_where: &str, id: i64) -> rusqlite::Result<i6
 fn list_accounts(tx: &Transaction<'_>) -> anyhow::Result<String> {
     let mut stmt = tx.prepare(
         "SELECT a.name, a.card_type, a.card_number,
-                (SELECT count(*) FROM entries e WHERE e.account_id = a.id)
+                (SELECT count(*) FROM entries e WHERE a.id IN (e.account_id, e.to_account_id))
          FROM accounts a ORDER BY a.position, a.id",
     )?;
     let mut rows = stmt.query([])?;

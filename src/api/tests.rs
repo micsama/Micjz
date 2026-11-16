@@ -135,7 +135,7 @@ async fn recognize_then_confirm_saves_once() {
     assert_eq!(s.count("SELECT COUNT(*) FROM entries"), 1);
     assert_eq!(
         s.count(
-            "SELECT count(*) FROM requests r JOIN entries e ON e.id = r.draft_id
+            "SELECT count(*) FROM requests r JOIN entries e ON e.recognition_id = r.draft_id
              WHERE r.status = 200"
         ),
         3,
@@ -145,7 +145,7 @@ async fn recognize_then_confirm_saves_once() {
         s.count("SELECT count(*) FROM requests WHERE field = 'action' AND value = '✅ 确认记账'"),
         2
     );
-    assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.id = r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%'"), 1);
+    assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.recognition_id = r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%'"), 1);
     let conn = rusqlite::Connection::open(&s.db_path).unwrap();
     let path: String = conn
         .query_row("SELECT image_path FROM recognitions LIMIT 1", [], |r| {

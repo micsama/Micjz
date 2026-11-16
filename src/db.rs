@@ -26,7 +26,7 @@ CREATE TABLE categories (
   parent_id INTEGER REFERENCES categories(id),
   name      TEXT NOT NULL,
   key       TEXT NOT NULL UNIQUE
-);
+) STRICT;
 CREATE UNIQUE INDEX idx_categories_name
   ON categories(kind, coalesce(parent_id, 0), name);
 
@@ -38,12 +38,12 @@ CREATE TABLE accounts (
   card_type   TEXT CHECK (card_type IN ('debit', 'credit')),
   card_number TEXT,
   CHECK ((card_type IS NULL) = (card_number IS NULL))
-);
+) STRICT;
 
 CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE
-);
+) STRICT;
 
 -- 一次识别一行，主键是草稿 ID。识别时刻看 /recognize 那条 requests。
 CREATE TABLE recognitions (
@@ -60,27 +60,34 @@ CREATE TABLE recognitions (
   raw          TEXT NOT NULL,
   reason       TEXT,
   origin       TEXT NOT NULL
-);
+) STRICT;
 
--- id 即草稿 ID；有这行就是已确认，created_at 是确认时刻。category_id 指向最细一级。
+-- id 是账目自己的 ID；截图来的 recognition_id 指向那次识别，也是确认的幂等键。
+-- 支出、收入有分类（最细一级）；转账从 account_id 到 to_account_id；平账的金额是差额，可正可负。
+-- 时间一律 UTC（flow::stamp）。
 CREATE TABLE entries (
-  id           TEXT PRIMARY KEY REFERENCES recognitions(draft_id),
-  kind         TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
-  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
-  category_id  INTEGER NOT NULL REFERENCES categories(id),
-  account_id   INTEGER NOT NULL REFERENCES accounts(id),
-  merchant     TEXT,
-  occurred_at  TEXT NOT NULL,
-  note         TEXT,
-  created_at   TEXT NOT NULL
-);
+  id             TEXT PRIMARY KEY,
+  recognition_id TEXT UNIQUE REFERENCES recognitions(draft_id),
+  kind           TEXT NOT NULL CHECK (kind IN ('expense', 'income', 'transfer', 'adjust')),
+  amount_cents   INTEGER NOT NULL CHECK (amount_cents > 0 OR (kind = 'adjust' AND amount_cents <> 0)),
+  category_id    INTEGER REFERENCES categories(id),
+  account_id     INTEGER NOT NULL REFERENCES accounts(id),
+  to_account_id  INTEGER REFERENCES accounts(id),
+  merchant       TEXT,
+  occurred_at    TEXT NOT NULL,
+  note           TEXT,
+  created_at     TEXT NOT NULL,
+  CHECK ((kind IN ('expense', 'income')) = (category_id IS NOT NULL)),
+  CHECK ((kind = 'transfer') = (to_account_id IS NOT NULL)),
+  CHECK (to_account_id <> account_id)
+) STRICT;
 CREATE INDEX idx_entries_occurred ON entries(occurred_at);
 
 CREATE TABLE entry_tags (
-  entry_id TEXT NOT NULL REFERENCES entries(id),
+  entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
   tag_id   INTEGER NOT NULL REFERENCES tags(id),
   PRIMARY KEY (entry_id, tag_id)
-);
+) STRICT;
 
 -- 访问日志：通过鉴权的每个请求一行。draft_id 原样记收到的，不设外键。
 CREATE TABLE requests (
@@ -94,7 +101,7 @@ CREATE TABLE requests (
   field      TEXT,
   value      TEXT,
   error      TEXT
-);
+) STRICT;
 CREATE INDEX idx_requests_draft ON requests(draft_id);
 
 -- 用户设置，恒为一行，每个设置一列。周期从 cycle_day 号起；预算为空是不设。
@@ -102,7 +109,7 @@ CREATE TABLE settings (
   id           INTEGER PRIMARY KEY CHECK (id = 1),
   cycle_day    INTEGER NOT NULL DEFAULT 1 CHECK (cycle_day BETWEEN 1 AND 28),
   budget_cents INTEGER CHECK (budget_cents > 0)
-);
+) STRICT;
 INSERT INTO settings (id) VALUES (1);
 ";
 
@@ -183,36 +190,38 @@ impl Db {
         )
     }
 
-    /// 以草稿 ID 入账，账目和标签同一事务；已存在则不变（重复确认是同一笔）。
-    /// 名称在这里换成 id；草稿期间被删改的分类、账户、标签会让入账失败。返回是否新插入。
+    /// 确认截图草稿：账目新生成 id，`recognition_id` 是草稿 ID；账目和标签同一事务。
+    /// 同一草稿重复确认只记一笔。名称在这里换成 id；草稿期间被删改的分类、账户、标签会让入账失败。
+    /// 返回是否新插入。
     pub fn save(&self, d: &Draft, amount_cents: i64) -> anyhow::Result<bool> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let now = flow::now().to_rfc3339();
+        let id = uuid::Uuid::now_v7().to_string();
         let category_id = category_id(&tx, d)?;
         let account_id = catalog::name_id(&tx, "accounts", &d.account)?;
         let inserted = tx.execute(
-            "INSERT INTO entries (id, kind, amount_cents, category_id, account_id,
+            "INSERT INTO entries (id, recognition_id, kind, amount_cents, category_id, account_id,
                                   merchant, occurred_at, note, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(id) DO NOTHING",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(recognition_id) DO NOTHING",
             params![
+                id,
                 d.id,
                 d.kind.as_str(),
                 amount_cents,
                 category_id,
                 account_id,
                 d.merchant,
-                d.occurred_at.to_rfc3339(),
+                flow::stamp(d.occurred_at),
                 d.note,
-                now,
+                flow::stamp(flow::now()),
             ],
         )? == 1;
         if inserted {
             for tag in &d.tags {
                 tx.execute(
                     "INSERT INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
-                    params![d.id, catalog::name_id(&tx, "tags", tag)?],
+                    params![id, catalog::name_id(&tx, "tags", tag)?],
                 )?;
             }
         }
