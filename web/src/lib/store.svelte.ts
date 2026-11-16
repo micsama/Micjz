@@ -244,6 +244,12 @@ export const fallbackOf = (kind: FlowKind) => app.catalog.categories.find((c) =>
 
 // ── 导航 ──
 
+/** 点底部标签：切到那一页；已经在那一页就滚回顶部（iOS 的习惯）。 */
+export function selectTab(tab: Tab, button: HTMLElement) {
+  if (app.tab !== tab) return void (app.tab = tab);
+  button.closest(".base")?.querySelector<HTMLElement>(".page")?.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 export const open = (id: string) => app.stack.push({ kind: "entry", id });
 /** 统计只有一个：底部「统计」标签。别处的入口都切到它，看的是同一个周期；带了筛选就换成这组筛选。 */
 export function openStats(filter?: Partial<Filter>) {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "../../ui/Icon.svelte";
-  import { app, type Tab } from "../../lib/store.svelte";
+  import { app, selectTab, type Tab } from "../../lib/store.svelte";
   const tabs: ({ id: Tab; label: string; emoji: string } | null)[] = [
     { id: "list", label: "账本", emoji: "📒" },
     { id: "stats", label: "统计", emoji: "📊" },
@@ -15,7 +15,7 @@
   <span class="blob"></span>
   {#each tabs as t, i (t?.id ?? i)}
     {#if t}
-      <button class:on={app.tab === t.id} onclick={() => (app.tab = t.id)}>
+      <button class:on={app.tab === t.id} onclick={(e) => selectTab(t.id, e.currentTarget)}>
         <span class="e">{t.emoji}</span>{t.label}
       </button>
     {:else}<button class="add" onclick={() => (app.creating = true)} aria-label="记一笔"><Icon name="plus" size={24} weight={2.6} /></button>{/if}
