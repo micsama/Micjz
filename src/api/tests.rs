@@ -133,6 +133,18 @@ async fn recognize_then_confirm_saves_once() {
     let (_, again) = s.step(&menu, "✅ 确认记账").await;
     assert_done(&again, "已记账");
     assert_eq!(s.count("SELECT COUNT(*) FROM entries"), 1);
+    assert_eq!(
+        s.count(
+            "SELECT count(*) FROM requests r JOIN entries e ON e.draft_id = r.draft_id
+             WHERE r.status = 200 AND r.reply NOT LIKE '%\"draft\"%'"
+        ),
+        3,
+        "识别 + 两次确认，都按 draft_id 记下，响应去掉 draft"
+    );
+    assert_eq!(
+        s.count("SELECT count(*) FROM requests WHERE field = 'action' AND value = '✅ 确认记账'"),
+        2
+    );
     assert_eq!(s.count("SELECT count(*) FROM entries e JOIN recognitions r ON e.draft_id=r.draft_id WHERE r.prompt != '' AND r.parameters LIKE '%none%' AND r.origin IS NOT NULL AND r.confirmed_at IS NOT NULL"), 1);
     let conn = rusqlite::Connection::open(&s.db_path).unwrap();
     let path: String = conn
@@ -231,4 +243,19 @@ async fn errors_are_json_done() {
     assert_done(&v, "接口不存在");
 
     assert_eq!(s.count("SELECT COUNT(*) FROM entries"), 0);
+    assert_eq!(
+        s.count("SELECT count(*) FROM requests WHERE status = 401"),
+        0,
+        "鉴权失败不进库"
+    );
+    assert_eq!(
+        s.count("SELECT count(*) FROM requests WHERE status = 400 AND error LIKE '请求无效%'"),
+        6
+    );
+    assert_eq!(
+        s.count(
+            "SELECT count(*) FROM requests WHERE method = 'GET' AND path = '/step' AND status = 404"
+        ),
+        1
+    );
 }

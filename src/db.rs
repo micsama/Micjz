@@ -77,6 +77,21 @@ CREATE TABLE recognitions (
   timings      TEXT,
   confirmed_at TEXT
 );
+
+CREATE TABLE requests (
+  id         INTEGER PRIMARY KEY,
+  at         TEXT NOT NULL,
+  method     TEXT NOT NULL,
+  path       TEXT NOT NULL,
+  status     INTEGER NOT NULL,
+  elapsed_ms INTEGER NOT NULL,
+  draft_id   TEXT,
+  field      TEXT,
+  value      TEXT,
+  reply      TEXT,
+  error      TEXT
+);
+CREATE INDEX requests_draft ON requests(draft_id);
 ";
 
 /// 当前表结构版本，存在库的 `PRAGMA user_version`；`deploy/db/convert.py` 也读这个文件。
@@ -95,6 +110,19 @@ pub struct Image<'a> {
     pub bytes: usize,
     /// 留存路径；文件由后台任务写入。
     pub path: &'a str,
+}
+
+/// `requests` 表的一行：通过鉴权的每个请求。
+pub struct RequestRow<'a> {
+    pub at: &'a str,
+    pub method: &'a str,
+    pub path: &'a str,
+    pub status: u16,
+    pub elapsed_ms: u64,
+    pub trace: &'a crate::api::Trace,
+    /// 响应 JSON，已去掉 draft。
+    pub reply: Option<&'a str>,
+    pub error: Option<&'a str>,
 }
 
 impl Db {
@@ -179,6 +207,27 @@ impl Db {
         )?;
         tx.commit()?;
         Ok(inserted)
+    }
+
+    pub fn record_request(&self, r: &RequestRow<'_>) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "INSERT INTO requests (at, method, path, status, elapsed_ms, draft_id, field, value,
+                                   reply, error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                r.at,
+                r.method,
+                r.path,
+                r.status,
+                r.elapsed_ms as i64,
+                r.trace.draft_id,
+                r.trace.field,
+                r.trace.value,
+                r.reply,
+                r.error,
+            ],
+        )?;
+        Ok(())
     }
 
     /// 保存一次识别；`origin` 是用户第一眼看到的草稿。

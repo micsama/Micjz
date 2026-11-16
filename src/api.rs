@@ -2,12 +2,13 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
+    body::{Body, to_bytes},
     extract::{
         DefaultBodyLimit, Multipart, Request, State, multipart::MultipartRejection,
         rejection::JsonRejection,
@@ -45,24 +46,76 @@ pub fn router(state: Arc<AppState>) -> Router {
         .method_not_allowed_fallback(not_found)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
-        .layer(middleware::from_fn(access_log))
+        .layer(middleware::from_fn_with_state(state.clone(), access_log))
         .with_state(state)
 }
 
-/// 每个请求一行：方法、路径、状态码、耗时。失败原因由各处理点另记。
-async fn access_log(req: Request, next: Next) -> Response {
-    let method = req.method().clone();
+/// 处理器补充的请求信息，由访问日志写进 `requests` 表。
+#[derive(Default)]
+pub struct Trace {
+    pub draft_id: Option<String>,
+    pub field: Option<String>,
+    pub value: Option<String>,
+}
+
+type TraceSlot = Arc<Mutex<Trace>>;
+
+/// 失败原因，由 `ApiError` 挂在响应上。
+#[derive(Clone)]
+struct Failure(String);
+
+/// 每个请求：终端一行（方法、路径、状态码、耗时）；通过鉴权的再在库里记一行。
+async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: Next) -> Response {
+    let method = req.method().to_string();
     let path = req.uri().path().to_owned();
+    let at = flow::now().to_rfc3339();
     let started = Instant::now();
+    let slot = TraceSlot::default();
+    req.extensions_mut().insert(slot.clone());
     let resp = next.run(req).await;
-    tracing::info!(
-        %method,
-        path,
-        status = resp.status().as_u16(),
-        elapsed_ms = started.elapsed().as_millis() as u64,
-        "请求"
-    );
-    resp
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let status = resp.status();
+    tracing::info!(method, path, status = status.as_u16(), elapsed_ms, "请求");
+    // 401 只来自鉴权：token 不对的不进库。
+    if status == StatusCode::UNAUTHORIZED {
+        return resp;
+    }
+    let error = resp.extensions().get::<Failure>().map(|f| f.0.clone());
+    let (parts, body) = resp.into_parts();
+    let bytes = match to_bytes(body, MAX_BODY_BYTES).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(error = %e, "读取响应体失败");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(Reply::done("响应失败".to_owned())),
+            )
+                .into_response();
+        }
+    };
+    let reply = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .map(|mut v| {
+            if let Some(o) = v.as_object_mut() {
+                o.remove("draft");
+            }
+            v.to_string()
+        });
+    let trace = std::mem::take(&mut *slot.lock().expect("trace 锁未中毒"));
+    let row = db::RequestRow {
+        at: &at,
+        method: &method,
+        path: &path,
+        status: status.as_u16(),
+        elapsed_ms,
+        trace: &trace,
+        reply: reply.as_deref(),
+        error: error.as_deref(),
+    };
+    if let Err(e) = state.db.record_request(&row) {
+        tracing::error!(error = %e, "保存请求记录失败");
+    }
+    Response::from_parts(parts, Body::from(bytes))
 }
 
 async fn not_found() -> ApiError {
@@ -78,7 +131,9 @@ impl IntoResponse for ApiError {
         } else {
             tracing::warn!(status = self.0.as_u16(), reason = %self.1, "请求失败");
         }
-        (self.0, Json(Reply::done(self.1))).into_response()
+        let mut resp = (self.0, Json(Reply::done(self.1.clone()))).into_response();
+        resp.extensions_mut().insert(Failure(self.1));
+        resp
     }
 }
 
@@ -109,6 +164,7 @@ async fn auth(State(state): State<Arc<AppState>>, req: Request, next: Next) -> R
 
 async fn recognize_handler(
     State(state): State<Arc<AppState>>,
+    Extension(trace): Extension<TraceSlot>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<Json<Reply>, ApiError> {
     let started = Instant::now();
@@ -142,6 +198,7 @@ async fn recognize_handler(
     let cat = load_catalog(&state)?;
     let now = flow::now();
     let r = state.recognizer.recognize(&image, mime, now, &cat).await;
+    trace.lock().expect("trace 锁未中毒").draft_id = Some(r.draft.id.clone());
     let timings = serde_json::json!({ "upload_ms": upload_ms, "model_ms": r.model_ms }).to_string();
     let image_meta = db::Image {
         sha256: &sha,
@@ -219,11 +276,18 @@ struct StepRequest {
 
 async fn step_handler(
     State(state): State<Arc<AppState>>,
+    Extension(trace): Extension<TraceSlot>,
     body: Result<Json<StepRequest>, JsonRejection>,
 ) -> Result<Json<Reply>, ApiError> {
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    {
+        let mut t = trace.lock().expect("trace 锁未中毒");
+        t.field = Some(req.field.clone());
+        t.value = Some(req.value.clone());
+    }
     let cat = load_catalog(&state)?;
     let before = Draft::decode(&req.draft, &cat).map_err(bad_request)?;
+    trace.lock().expect("trace 锁未中毒").draft_id = Some(before.id.clone());
     tracing::info!(id = %before.id, field = %req.field, "步骤");
     match flow::step(before, &req.field, &req.value, flow::now(), &cat).map_err(bad_request)? {
         Outcome::Reply(reply) => {
