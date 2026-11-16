@@ -342,4 +342,4 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 - 账目按自然年缓存，见头脑风暴「账目按需取」；余额改用 §3.3。
 - 加登录页（一个 token 输入框）；设置页加「退出登录」，「更新」先只显示版本号。
 - 记账周期和预算从 `localStorage` 改成 §3.5 / §7；主题、隐藏金额仍留在浏览器。
-- 原型的假数据（`lib/mock.ts`）留作 `bun run dev` 不连服务器时的演示，或删掉，接完再定。
+- 原型的假数据改成 `web/mock/` 下按本契约实现的内存假后端，只在 `bun run demo`（`vite --mode mock`）时挂上，不进生产包；`bun run dev` 代理到本机 `127.0.0.1:8730`。登录口令 `demo`。

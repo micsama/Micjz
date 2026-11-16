@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { app, breakdown, budgetOf, earning, openStats, periodEntries, prefs, recentSpend, spendIndex, spending } from "../lib/store.svelte";
+  import { app, openStats, settings } from "../lib/store.svelte";
+  import { breakdown, budgetOf, earning, periodEntries, recentSpend, spendIndex, spending } from "../lib/query";
   import Icon from "./Icon.svelte";
   import { badge, comparisonEnds, isYear, money, periodRange, shiftPeriod } from "../lib/format";
   import { color } from "../lib/look";
@@ -9,9 +10,9 @@
   const budget = $derived(budgetOf(app.period));
   const parts = $derived(breakdown(list));
   const scale = $derived(Math.max(1, spent, budget ?? 0));
-  const label = $derived(isYear(app.period) ? "全年" : prefs.cycleDay === 1 ? "本月" : "本期");
+  const label = $derived(isYear(app.period) ? "全年" : settings.cycle_day === 1 ? "本月" : "本期");
   const change = $derived.by(() => {
-    const end = comparisonEnds(app.period, prefs.cycleDay);
+    const end = comparisonEnds(app.period, settings.cycle_day);
     const current = spending(list.filter((e) => new Date(e.occurred_at) < end.current)).cents;
     const previous = spending(periodEntries(shiftPeriod(app.period, -1)).filter((e) => new Date(e.occurred_at) < end.previous)).cents;
     return previous ? Math.round(((current - previous) / previous) * 100) : null;
@@ -19,7 +20,7 @@
   const comparisonLabel = $derived(isYear(app.period) ? "较去年同期" : "较上月同期");
   // 走势不分周期：截到今天，看过去的周期时截到那期最后一天；超过日均两倍的日子标红。
   const trend = $derived.by(() => {
-    const { end } = periodRange(app.period, prefs.cycleDay);
+    const { end } = periodRange(app.period, settings.cycle_day);
     const days = recentSpend(new Date(Math.min(Date.now(), end.getTime() - 1)), 30);
     const peak = Math.max(1, ...days.map((d) => d.cents));
     const avg = days.reduce((sum, d) => sum + d.cents, 0) / days.length;

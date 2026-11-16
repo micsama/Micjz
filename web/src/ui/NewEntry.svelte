@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { addEntry, app, accountOf, subsOf, toast, tops, type EntryInput } from "../lib/store.svelte";
+  import { addEntry, app, accountOf, subsOf, toast, tops } from "../lib/store.svelte";
+  import type { EntryInput } from "../lib/api";
   import { dayLabel, localInput, time } from "../lib/format";
   import { amountInput, amountResult } from "../lib/amount";
   import type { FieldKey, FlowKind } from "../lib/types";
@@ -103,7 +104,9 @@
     useNow = false;
     picking = null;
   }
-  function save(again = false) {
+  /** 正在提交：按钮先停用，免得连点记两笔（服务器不防重）。 */
+  let saving = $state(false);
+  async function save(again = false) {
     const cents = result;
     if (cents === null || cents <= 0) {
       error = "先填一个大于 0 的金额";
@@ -113,7 +116,9 @@
       error = "请选择不同的转出、转入账户";
       return;
     }
-    addEntry({
+    if (saving) return;
+    saving = true;
+    const ok = await addEntry({
       ...draft,
       amount_cents: cents,
       occurred_at: useNow ? new Date().toISOString() : draft.occurred_at,
@@ -121,6 +126,9 @@
       note: draft.note?.trim() || null,
       tag_ids: [...draft.tag_ids],
     });
+    saving = false;
+    // 没记上：面板和填好的内容都留着，提示由 store 弹出。
+    if (!ok) return;
     if (!again) app.creating = false;
     if (again) {
       amount = "";
@@ -128,7 +136,7 @@
       draft.merchant = null;
       error = "";
     }
-    toast(again ? "已记好，继续下一笔" : "已添加到原型，刷新后恢复示例数据");
+    toast(again ? "已记好，继续下一笔" : "已记好");
   }
 </script>
 
@@ -276,11 +284,11 @@
             onclick={() => digit(key)}>{key}</button
           >
         {/each}
-        <button class="key again" disabled={!ready} onclick={() => save(true)}>再记一笔</button>
+        <button class="key again" disabled={!ready || saving} onclick={() => save(true)}>再记一笔</button>
         <button class="key erase" aria-label="删除一位" onclick={() => digit("back")}><Icon name="chevron-left" size={22} /></button>
         <button class="key operator plus" aria-label="加" onclick={() => digit("+")}><Icon name="plus" size={24} weight={2.2} /></button>
         <button class="key operator minus" aria-label="减" onclick={() => digit("-")}><Icon name="minus" size={24} weight={2.2} /></button>
-        <button class="key save" disabled={!ready} onclick={() => save()}>保存</button>
+        <button class="key save" disabled={!ready || saving} onclick={() => save()}>保存</button>
       </div>
     {/if}
   </footer>

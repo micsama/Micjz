@@ -1,0 +1,79 @@
+// 和服务器对话的唯一出口：契约见 docs/blueprints/web-api.md。只管收发和把失败变成 ApiError，失败后怎么办由 store 决定。
+import type { Account, Catalog, Entry, Recognition } from "./types";
+
+/** 服务器给的失败；`status` 为 0 是没连上。`message` 是给人看的那句，直接显示。 */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`api/${path}`, {
+      method,
+      credentials: "same-origin",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // 写请求在网页切走、关掉时也要送达（撤销期内的删除就在这时发出）。
+      keepalive: method !== "GET",
+    });
+  } catch {
+    throw new ApiError(0, "连不上服务器，请检查网络");
+  }
+  if (res.ok) return (res.status === 204 ? undefined : await res.json()) as T;
+  const text = await res.json().then(
+    (j: { error?: string }) => j.error,
+    () => undefined,
+  );
+  throw new ApiError(res.status, text ?? `服务器出错（${res.status}）`);
+}
+
+export interface Settings {
+  cycle_day: number;
+  /** 每期支出预算；空为不设。 */
+  budget_cents: number | null;
+  version: string;
+  entry_count: number;
+}
+
+/** 新记一笔要给的字段；ID、入账时刻由服务器生成。 */
+export type EntryInput = Omit<Entry, "id" | "recognition_id" | "created_at">;
+/** 改账目：只放要改的字段；`merchant`、`note` 给 `null` 是清空。 */
+export type EntryPatch = Partial<EntryInput>;
+export type AccountInput = Omit<Account, "id">;
+
+const enc = encodeURIComponent;
+
+export const api = {
+  login: (token: string) => call<void>("POST", "login", { token }),
+  logout: () => call<void>("POST", "logout"),
+
+  catalog: () => call<Catalog>("GET", "catalog"),
+  entries: (from: Date, to: Date) =>
+    call<{ entries: Entry[]; earliest: string | null }>("GET", `entries?from=${enc(from.toISOString())}&to=${enc(to.toISOString())}`),
+  balances: () => call<{ balances: { account_id: number; balance_cents: number }[] }>("GET", "balances"),
+  settings: () => call<Settings>("GET", "settings"),
+  recognition: (id: string) => call<Recognition>("GET", `recognitions/${enc(id)}`),
+
+  addEntry: (e: EntryInput) => call<Entry>("POST", "entries", e),
+  patchEntry: (id: string, patch: EntryPatch) => call<Entry>("PATCH", `entries/${enc(id)}`, patch),
+  deleteEntry: (id: string) => call<void>("DELETE", `entries/${enc(id)}`),
+  adjust: (account: number, balance_cents: number) =>
+    call<{ entry: Entry | null; balance_cents: number }>("POST", `accounts/${account}/adjust`, { balance_cents }),
+
+  addAccount: (a: AccountInput) => call<Account>("POST", "accounts", a),
+  putAccount: (id: number, a: AccountInput) => call<Account>("PUT", `accounts/${id}`, a),
+  deleteAccount: (id: number) => call<void>("DELETE", `accounts/${id}`),
+  moveAccount: (id: number, to: number) => call<{ accounts: Account[] }>("POST", `accounts/${id}/move`, { to }),
+
+  putSettings: (s: Pick<Settings, "cycle_day" | "budget_cents">) => call<Settings>("PUT", "settings", s),
+};
+
+/** 截图直接当 `<img src>`，Cookie 自动带上。 */
+export const imageUrl = (recognition: string) => `api/recognitions/${enc(recognition)}/image`;
+export const EXPORT_URL = "api/export.csv";

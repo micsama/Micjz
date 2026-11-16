@@ -1,8 +1,8 @@
-// 页面状态和所有操作；主题只负责展示，改数据都走这里。
-import type { Account, Category, Entry, FieldKey, Fields, FlowKind } from "./types";
-import { catalog, seed } from "./mock";
-import { effect, isIncome, isSpend, listed } from "./kinds";
-import { dayKey, newestFirst, isYear, periodOf, periodRange, within } from "./format";
+// 页面状态和所有操作；主题只负责展示，读写服务器都走这里。
+// 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
+import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
+import { api, ApiError, type AccountInput, type EntryInput, type EntryPatch, type Settings } from "./api";
+import { isYear, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
 export type Tab = "list" | "stats" | "wealth" | "settings";
@@ -20,26 +20,171 @@ export interface Filter {
 export type Dim = keyof Filter;
 const ANY: Filter = { account: null, category: null, tag: null };
 
-/** 用户设置；原型里存 localStorage，正式版存 SQLite。 */
-interface Prefs {
-  /** 记账周期从每月几号开始，1–28。 */
-  cycleDay: number;
-  /** 每个周期的支出预算，分；空为不设。 */
-  budget: number | null;
+interface Toast {
+  text: string;
+  undo?: () => void;
 }
 
-const PREFS = "micjz.prefs";
-export const prefs: Prefs = $state({ cycleDay: 1, budget: 300000, ...JSON.parse(localStorage.getItem(PREFS) ?? "{}") });
+const UNDO_MS = 4000;
+const HIDE = "micjz.hideBalance";
 
-export function setPrefs(patch: Partial<Prefs>) {
-  Object.assign(prefs, patch);
-  localStorage.setItem(PREFS, JSON.stringify(prefs));
-  app.period = currentPeriod(isYear(app.period));
+/** 服务器上的用户设置；启动时取到之后才进入页面。 */
+export const settings: Settings = $state({ cycle_day: 1, budget_cents: null, version: "", entry_count: 0 });
+
+export const app = $state({
+  /** 进页面之前：取数据中、要登录、取不到。 */
+  phase: "loading" as "loading" | "login" | "failed" | "ready",
+  /** `failed` 时的原因。 */
+  failure: "",
+  catalog: { categories: [], accounts: [], tags: [] } as Catalog,
+  /** 已取过的年份里的全部账目，新的在前。 */
+  entries: [] as Entry[],
+  /** 已取过的自然年。 */
+  years: [] as number[],
+  /** 全库最早的一笔，跳转面板翻到这一年为止。 */
+  earliest: null as string | null,
+  /** 各账户此刻的余额，分，服务器算。 */
+  balances: {} as Record<number, number>,
+  /** 截图来的账目对应的识别，按 `recognition_id` 取，打开详情时才取。 */
+  recognitions: {} as Record<string, Recognition>,
+  /** 正在看的记账周期，月或年，见 `periodOf`。账目、财富、统计三页共用。 */
+  period: "",
+  /** 隐藏余额，在别人面前打开时用。 */
+  hideBalance: localStorage.getItem(HIDE) === "1",
+  tab: "list" as Tab,
+  creating: false,
+  /** 推入的页面，栈顶是当前页。 */
+  stack: [] as Page[],
+  sheet: null as { id: string; field: FieldKey } | null,
+  filter: { ...ANY } as Filter,
+  /** 正在选的筛选项，弹出选择面板。 */
+  picking: null as Dim | null,
+  toast: null as Toast | null,
+  /** 已删、可撤销的账目：撤销期过了才真正删除。 */
+  hidden: [] as string[],
+});
+
+// ── 和服务器之间 ──
+
+/** 请求失败的统一处理：401 回登录页，409 说明目录变了、重取。返回结果或那个错误，提示由调用方决定。 */
+async function attempt<T>(p: Promise<T>): Promise<T | ApiError> {
+  try {
+    return await p;
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    if (e.status === 401) app.phase = "login";
+    if (e.status === 409) void reloadCatalog();
+    return e;
+  }
 }
+
+/** 失败就弹提示，返回空。 */
+async function guard<T>(p: Promise<T>): Promise<T | undefined> {
+  const r = await attempt(p);
+  if (!(r instanceof ApiError)) return r;
+  if (r.status !== 401) toast(r.message);
+  return undefined;
+}
+
+async function reloadCatalog() {
+  const c = await attempt(api.catalog());
+  if (!(c instanceof ApiError)) app.catalog = c;
+}
+
+/** 写之后余额、笔数会变，从服务器重取。 */
+async function refreshTotals() {
+  const [b, s] = await Promise.all([attempt(api.balances()), attempt(api.settings())]);
+  if (!(b instanceof ApiError)) app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents]));
+  if (!(s instanceof ApiError)) Object.assign(settings, s);
+}
+
+/** 打开、登录后：取目录、设置、余额，再把当期和上一期要的年份取齐才进页面，免得先闪一下空数据。 */
+export async function boot() {
+  app.phase = "loading";
+  const [c, s, b] = await Promise.all([attempt(api.catalog()), attempt(api.settings()), attempt(api.balances())]);
+  const failed = [c, s, b].find((r) => r instanceof ApiError);
+  if (failed) {
+    if (failed.status !== 401) [app.phase, app.failure] = ["failed", failed.message];
+    return;
+  }
+  app.catalog = c as Catalog;
+  Object.assign(settings, s);
+  app.balances = Object.fromEntries((b as Awaited<ReturnType<typeof api.balances>>).balances.map((x) => [x.account_id, x.balance_cents]));
+  app.period = currentPeriod();
+  await Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]);
+  if (app.phase === "loading") app.phase = "ready";
+}
+
+/** 登录成功返回空，失败返回给人看的原因。 */
+export async function login(token: string): Promise<string | null> {
+  const r = await attempt(api.login(token));
+  if (r instanceof ApiError) return r.status === 401 ? "口令不对" : r.message;
+  await boot();
+  return null;
+}
+
+/** 不管服务器那边成没成，都重新打开：Cookie 清掉了就回到登录页。 */
+export async function logout() {
+  await attempt(api.logout());
+  location.reload();
+}
+
+/** 网页回到前台：快捷指令可能记过账，重取目录、设置、余额和已取过的年份。 */
+export async function refresh() {
+  if (app.phase !== "ready") return;
+  await Promise.all([reloadCatalog(), refreshTotals(), ...app.years.map(fetchYear)]);
+}
+
+const yearOf = (iso: string) => new Date(iso).getFullYear();
+const inflight = new Map<number, Promise<void>>();
+
+/** 取一整年，替换内存里这一年的账目。同一年同时只取一次。 */
+function fetchYear(y: number): Promise<void> {
+  let p = inflight.get(y);
+  if (!p) {
+    p = guard(api.entries(new Date(y, 0, 1), new Date(y + 1, 0, 1)))
+      .then((r) => {
+        if (!r) return;
+        app.entries = [...app.entries.filter((e) => yearOf(e.occurred_at) !== y), ...r.entries].sort(newestFirst);
+        if (!app.years.includes(y)) app.years.push(y);
+        app.earliest = r.earliest;
+      })
+      .finally(() => inflight.delete(y));
+    inflight.set(y, p);
+  }
+  return p;
+}
+
+/** 这段周期（月或年）覆盖的自然年都取齐；视图要看哪段就先要哪段。 */
+export function want(period: string): Promise<void> {
+  const { start, end } = periodRange(period, settings.cycle_day);
+  const last = Math.min(new Date(end.getTime() - 1).getFullYear(), new Date().getFullYear());
+  const todo = [];
+  for (let y = start.getFullYear(); y <= last; y++) if (!app.years.includes(y)) todo.push(fetchYear(y));
+  return Promise.all(todo).then(() => {});
+}
+
+/** 服务器返回的一笔放进内存：它那年取过就放进去（有就替换）；没取过就去取那一年。 */
+function place(e: Entry) {
+  app.entries = [...app.entries.filter((x) => x.id !== e.id), e].sort(newestFirst);
+  if (!app.years.includes(yearOf(e.occurred_at))) void fetchYear(yearOf(e.occurred_at));
+}
+
+const loading = new Set<string>();
+/** 详情页打开时取那次识别。 */
+export async function loadRecognition(id: string) {
+  if (app.recognitions[id] || loading.has(id)) return;
+  loading.add(id);
+  const r = await attempt(api.recognition(id));
+  loading.delete(id);
+  if (!(r instanceof ApiError)) app.recognitions[id] = r;
+}
+
+// ── 周期 ──
 
 /** 今天所在的周期；`year` 为真时取所在的年。 */
 export const currentPeriod = (year = false) => {
-  const m = periodOf(new Date().toISOString(), prefs.cycleDay);
+  const m = periodOf(new Date().toISOString(), settings.cycle_day);
   return year ? m.slice(0, 4) : m;
 };
 
@@ -61,45 +206,16 @@ export function setUnit(year: boolean) {
   app.period = within(lastMonth, y) ? lastMonth : y === currentPeriod(true) ? currentPeriod() : `${y}-12`;
 }
 
-/** 周期的支出预算：按年看是每月预算的 12 倍。 */
-export const budgetOf = (key: string) => (prefs.budget === null ? null : prefs.budget * (isYear(key) ? 12 : 1));
-
-interface Toast {
-  text: string;
-  undo?: () => void;
+/** 改记账周期、预算；以服务器返回为准。 */
+export async function saveSettings(patch: Partial<Pick<Settings, "cycle_day" | "budget_cents">>) {
+  const s = await guard(api.putSettings({ cycle_day: settings.cycle_day, budget_cents: settings.budget_cents, ...patch }));
+  if (!s) return;
+  const moved = s.cycle_day !== settings.cycle_day;
+  Object.assign(settings, s);
+  if (moved) app.period = currentPeriod(isYear(app.period));
 }
 
-const UNDO_MS = 4000;
-const HIDE = "micjz.hideBalance";
-
-export function toggleBalance() {
-  app.hideBalance = !app.hideBalance;
-  localStorage.setItem(HIDE, app.hideBalance ? "1" : "0");
-}
-
-const data = seed();
-
-export const app = $state({
-  catalog,
-  entries: data.entries,
-  /** 截图来的账目对应的识别，按 `recognition_id` 取。 */
-  recognitions: data.recognitions,
-  /** 正在看的记账周期，月或年，见 `periodOf`。账目、财富、统计三页共用。 */
-  period: currentPeriod(),
-  /** 隐藏余额，在别人面前打开时用。 */
-  hideBalance: localStorage.getItem(HIDE) === "1",
-  tab: "list" as Tab,
-  creating: false,
-  /** 推入的页面，栈顶是当前页。 */
-  stack: [] as Page[],
-  sheet: null as { id: string; field: FieldKey } | null,
-  filter: { ...ANY } as Filter,
-  /** 正在选的筛选项，弹出选择面板。 */
-  picking: null as Dim | null,
-  toast: null as Toast | null,
-  /** 已删、可撤销的账目：撤销期过了才真正删除。 */
-  hidden: [] as string[],
-});
+// ── 目录 ──
 
 export const find = (id: string) => app.entries.find((e) => e.id === id);
 
@@ -116,118 +232,7 @@ const FALLBACK: Record<FlowKind, string> = { expense: "other", income: "other_in
 /** 兜底分类「其他」，按 key 认，改名不影响。 */
 export const fallbackOf = (kind: FlowKind) => app.catalog.categories.find((c) => c.key === FALLBACK[kind])!;
 
-const live = (e: Entry) => !app.hidden.includes(e.id);
-
-/** 周期里的账目；`account` 为账户视角，见 `listed`。 */
-export function periodEntries(period: string, account?: number): Entry[] {
-  return app.entries.filter((e) => live(e) && listed(e, account) && within(periodOf(e.occurred_at, prefs.cycleDay), period));
-}
-
-/** 账户此刻的余额，分，负数是欠款：所有账目的影响相加（期初余额也是一笔平账）。 */
-export const balanceOf = (account: number) => app.entries.reduce((s, e) => s + (live(e) ? effect(e, account) : 0), 0);
-
-/** 金额合计和笔数。「几笔」总是跟着它旁边的金额算，不另数。 */
-export interface Sum {
-  cents: number;
-  count: number;
-}
-const sum = (list: Entry[], pick: (e: Entry) => boolean): Sum =>
-  list.reduce((s, e) => (pick(e) ? { cents: s.cents + e.amount_cents, count: s.count + 1 } : s), { cents: 0, count: 0 });
-export const spending = (list: Entry[]) => sum(list, isSpend);
-export const earning = (list: Entry[]) => sum(list, isIncome);
-
-export function byDay(list: Entry[]): { day: string; at: string; entries: Entry[]; spent: number }[] {
-  const groups = new Map<string, Entry[]>();
-  for (const e of [...list].sort(newestFirst)) {
-    const k = dayKey(e.occurred_at);
-    groups.set(k, [...(groups.get(k) ?? []), e]);
-  }
-  return [...groups.entries()].map(([day, entries]) => ({ day, at: entries[0].occurred_at, entries, spent: spending(entries).cents }));
-}
-
-/** 截至 `last` 那天（含）的最近 `n` 天每天的支出，从早到晚。不分周期，首页走势用。 */
-export function recentSpend(last: Date, n: number): { date: Date; cents: number }[] {
-  const days = Array.from({ length: n }, (_, i) => ({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() - n + 1 + i), cents: 0 }));
-  const index = new Map(days.map((d, i) => [dayKey(d.date.toISOString()), i]));
-  for (const e of app.entries) {
-    const i = live(e) && isSpend(e) ? index.get(dayKey(e.occurred_at)) : undefined;
-    if (i !== undefined) days[i].cents += e.amount_cents;
-  }
-  return days;
-}
-
-/** 周期内的支出柱：按月看每天一根，按年看每月一根；下标 0 是第一天或 1 月。 */
-export function spendBars(period: string, list: Entry[]): number[] {
-  const { start, days } = periodRange(period, prefs.cycleDay);
-  const year = isYear(period);
-  const out = new Array(year ? 12 : days).fill(0);
-  for (const e of list) {
-    if (!isSpend(e)) continue;
-    const d = new Date(e.occurred_at);
-    const i = year
-      ? Number(periodOf(e.occurred_at, prefs.cycleDay).slice(5)) - 1
-      : Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) / 86400000);
-    out[i] += e.amount_cents;
-  }
-  return out;
-}
-
-/** 今天在 `spendBars` 里的下标；不在这个周期为 -1。 */
-export function todayIndex(period: string): number {
-  if (isYear(period)) {
-    const m = currentPeriod();
-    return within(m, period) ? Number(m.slice(5)) - 1 : -1;
-  }
-  const { start, days } = periodRange(period, prefs.cycleDay);
-  const now = new Date();
-  const i = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - start.getTime()) / 86400000);
-  return i >= 0 && i < days ? i : -1;
-}
-
-/** 周期过了几天（含今天）、一共几天；过去的周期算整期。预算的时间进度用它。 */
-export function elapsedDays(period: string): { elapsed: number; days: number } {
-  const { start, end, days } = periodRange(period, prefs.cycleDay);
-  const now = Date.now();
-  if (now >= end.getTime()) return { elapsed: days, days };
-  return { elapsed: Math.max(0, Math.floor((now - start.getTime()) / 86400000) + 1), days };
-}
-
-/** 按月周期分组，按年看和跳转面板用。 */
-export function byMonth(list: Entry[]): Map<string, Entry[]> {
-  const out = new Map<string, Entry[]>();
-  for (const e of list) {
-    const k = periodOf(e.occurred_at, prefs.cycleDay);
-    out.set(k, [...(out.get(k) ?? []), e]);
-  }
-  return out;
-}
-
-/** 每个月周期的支出，跳转面板用。 */
-export const monthTotals = (): Map<string, Sum> => new Map([...byMonth(app.entries.filter((e) => live(e) && listed(e)))].map(([k, es]) => [k, spending(es)]));
-
-/** 按某个维度汇总支出，从大到小。 */
-export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null): { name: string; cents: number; count: number }[] {
-  const sums = new Map<string, { cents: number; count: number }>();
-  for (const e of list) {
-    if (!isSpend(e)) continue;
-    const k = key(e);
-    for (const name of k === null ? [] : Array.isArray(k) ? k : [k]) {
-      const s = sums.get(name) ?? { cents: 0, count: 0 };
-      sums.set(name, { cents: s.cents + e.amount_cents, count: s.count + 1 });
-    }
-  }
-  return [...sums].map(([name, s]) => ({ name, ...s })).sort((a, b) => b.cents - a.cents);
-}
-
-/** 支出按一级分类汇总，从大到小。 */
-export const breakdown = (list: Entry[]) => sumBy(list, (e) => topOf(categoryOf(e.category_id)!).name);
-
-/** 支出一级分类在 `breakdown` 里的颜色序号，按名称找。 */
-export const spendIndex = (name: string) =>
-  Math.max(
-    0,
-    tops("expense").findIndex((c) => c.name === name),
-  );
+// ── 导航 ──
 
 export const open = (id: string) => app.stack.push({ kind: "entry", id });
 /** 统计只有一个：底部「统计」标签。别处的入口都切到它，看的是同一个周期；带了筛选就换成这组筛选。 */
@@ -250,49 +255,140 @@ export const clearFilter = () => {
   app.picking = null;
 };
 
-/** 统计看的账目：周期内、符合筛选。按账户筛时连同转账、平账一起算进来（见 `listed`）。 */
-export function statEntries(period: string): Entry[] {
-  const { account, category, tag } = app.filter;
-  return periodEntries(period, account ?? undefined).filter((e) => {
-    if (tag !== null && !e.tag_ids.includes(tag)) return false;
-    if (category === null) return true;
-    const c = categoryOf(e.category_id);
-    return !!c && (c.id === category || c.parent_id === category);
+export const back = () => app.stack.pop();
+export function edit(id: string, field: FieldKey) {
+  // 平账金额可以是负数，数字键盘没有负号。
+  if (field === "amount_cents") holdKeyboard(find(id)?.kind === "adjust" ? "text" : "decimal");
+  if (field === "merchant" || field === "note") holdKeyboard();
+  app.sheet = { id, field };
+}
+export const closeSheet = () => (app.sheet = null);
+
+export function toggleBalance() {
+  app.hideBalance = !app.hideBalance;
+  localStorage.setItem(HIDE, app.hideBalance ? "1" : "0");
+}
+
+// ── 账目的写 ──
+
+/** 手记一笔，成功返回真。记完跳到它所在的周期。 */
+export async function addEntry(fields: EntryInput): Promise<boolean> {
+  const e = await guard(api.addEntry(fields));
+  if (!e) return false;
+  place(e);
+  void refreshTotals();
+  app.tab = "list";
+  app.stack = [];
+  app.period = periodOf(e.occurred_at, settings.cycle_day);
+  return true;
+}
+
+/**
+ * 改一笔：先改内存让界面立刻跟上，再以服务器返回为准；失败就改回去。
+ * 支出、收入互换后原分类不再适用：换成「其他」，接着让用户选分类（同快捷指令）。转账、平账不能换类型。
+ */
+export async function update(id: string, patch: EntryPatch) {
+  const e = find(id);
+  if (!e) return;
+  if (patch.kind && patch.kind !== e.kind) {
+    patch = { kind: patch.kind, category_id: fallbackOf(patch.kind as FlowKind).id };
+    app.sheet = { id, field: "category_id" };
+  }
+  const before = Object.fromEntries(Object.keys(patch).map((k) => [k, e[k as keyof EntryPatch]]));
+  Object.assign(e, patch);
+  const next = await guard(api.patchEntry(id, patch));
+  if (!next) {
+    const cur = find(id);
+    if (cur) Object.assign(cur, before);
+    return;
+  }
+  place(next);
+  void refreshTotals();
+}
+
+/** 撤销期内的删除：到期或网页切到后台时才真正发出。 */
+const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const unhide = (id: string) => (app.hidden = app.hidden.filter((h) => h !== id));
+
+export function remove(id: string) {
+  const top = app.stack.at(-1);
+  if (top?.kind === "entry" && top.id === id) app.stack.pop();
+  app.hidden.push(id);
+  pending.set(
+    id,
+    setTimeout(() => commitDelete(id), UNDO_MS),
+  );
+  toast("已删除", () => {
+    clearTimeout(pending.get(id));
+    pending.delete(id);
+    unhide(id);
   });
 }
 
-/** 调整账户顺序；排第一的是默认账户，识别不出账户时用它。接服务器后写 `accounts.position`，原型里只改内存。 */
-export function moveAccount(from: number, to: number) {
-  const list = [...app.catalog.accounts];
-  list.splice(to, 0, ...list.splice(from, 1));
-  app.catalog.accounts = list;
-  if (from === 0 || to === 0) toast(`默认账户：${list[0].name}`);
+async function commitDelete(id: string) {
+  pending.delete(id);
+  const r = await attempt(api.deleteEntry(id));
+  // 404：已经不在了，和删除成功一样。
+  if (r instanceof ApiError && r.status !== 404) {
+    unhide(id);
+    if (r.status !== 401) toast(`没删掉：${r.message}`);
+    return;
+  }
+  app.entries = app.entries.filter((e) => e.id !== id);
+  unhide(id);
+  void refreshTotals();
 }
 
-/** 新建（`id` 为 0）或修改账户；名称冲突返回错误文案。 */
-export function saveAccount(next: Account): string | null {
-  const list = app.catalog.accounts;
-  if (list.some((a) => a.name === next.name && a.id !== next.id)) return "已经有同名账户";
-  const i = list.findIndex((a) => a.id === next.id);
-  if (i >= 0) {
-    list[i] = next;
-    return null;
+/** 网页要切走了：撤销期没过的删除马上发出（请求带 keepalive，页面关了也能送达）。 */
+export function flushDeletes() {
+  for (const [id, timer] of pending) {
+    clearTimeout(timer);
+    void commitDelete(id);
   }
-  list.push({ ...next, id: Math.max(0, ...list.map((a) => a.id)) + 1 });
-  toast(`已添加 ${next.name}`);
+}
+
+// ── 账户 ──
+
+/** 调整账户顺序；排第一的是默认账户，识别不出账户时用它。先挪内存，再以服务器的顺序为准。 */
+export async function moveAccount(from: number, to: number) {
+  const list = [...app.catalog.accounts];
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+  app.catalog.accounts = list;
+  if (from === 0 || to === 0) toast(`默认账户：${list[0].name}`);
+  const r = await guard(api.moveAccount(moved.id, to));
+  if (r) app.catalog.accounts = r.accounts;
+  else void reloadCatalog();
+}
+
+/** 新建（`id` 为 0）或修改账户；失败返回给人看的原因。 */
+export async function saveAccount(next: Account): Promise<string | null> {
+  const { id, ...input }: { id: number } & AccountInput = next;
+  const r = await attempt(id ? api.putAccount(id, input) : api.addAccount(input));
+  if (r instanceof ApiError) return r.message;
+  const list = app.catalog.accounts;
+  const i = list.findIndex((a) => a.id === r.id);
+  if (i >= 0) list[i] = r;
+  else {
+    list.push(r);
+    toast(`已添加 ${r.name}`);
+    void refreshTotals();
+  }
   return null;
 }
 
-/** 删除账户；还有账目在用就不删，返回错误文案。 */
-export function removeAccount(id: number): string | null {
-  const used = app.entries.filter((e) => e.account_id === id || e.to_account_id === id).length;
-  if (used) return `还有 ${used} 笔账目在用，不能删除`;
+/** 删除账户；还有账目在用、只剩一个时服务器不让删，返回原因。 */
+export async function removeAccount(id: number): Promise<string | null> {
+  const r = await attempt(api.deleteAccount(id));
+  if (r instanceof ApiError && r.status !== 404) return r.message;
   const list = app.catalog.accounts;
   const i = list.findIndex((a) => a.id === id);
-  list.splice(i, 1);
+  if (i >= 0) list.splice(i, 1);
   toast(i === 0 && list.length ? `已删除，默认账户：${list[0].name}` : "已删除");
   return null;
 }
+
+// ── 提示 ──
 
 /** 复制文本。局域网 http 下没有 clipboard API，退回 execCommand。 */
 export async function copy(text: string, what: string) {
@@ -308,55 +404,6 @@ export async function copy(text: string, what: string) {
     t.remove();
   }
   toast(`已复制${what}`);
-}
-export const back = () => app.stack.pop();
-export function edit(id: string, field: FieldKey) {
-  // 平账金额可以是负数，数字键盘没有负号。
-  if (field === "amount_cents") holdKeyboard(find(id)?.kind === "adjust" ? "text" : "decimal");
-  if (field === "merchant" || field === "note") holdKeyboard();
-  app.sheet = { id, field };
-}
-export const closeSheet = () => (app.sheet = null);
-
-export function update(id: string, patch: Partial<Fields>) {
-  const e = find(id);
-  if (!e) return;
-  // 支出、收入互换后原分类不再适用：回到「其他」，接着让用户选分类（同快捷指令）。转账、平账不能换类型。
-  if (patch.kind && patch.kind !== e.kind) {
-    const kind = patch.kind as FlowKind;
-    e.kind = kind;
-    e.category_id = fallbackOf(kind).id;
-    app.sheet = { id, field: "category_id" };
-    return;
-  }
-  Object.assign(e, patch);
-}
-
-/** 手记一笔要填的字段；ID、入账时刻由存储方生成，手记的没有识别。 */
-export type EntryInput = Omit<Entry, "id" | "recognition_id" | "created_at">;
-
-/** 手记一笔。原型里只进内存；接服务器后由服务器生成 ID（UUIDv7）。记完跳到它所在的周期。 */
-export function addEntry(fields: EntryInput) {
-  const now = new Date().toISOString();
-  app.entries.push({ ...fields, id: crypto.randomUUID(), recognition_id: null, created_at: now });
-  app.entries.sort(newestFirst);
-  app.tab = "list";
-  app.stack = [];
-  app.period = periodOf(fields.occurred_at, prefs.cycleDay);
-}
-
-export function remove(id: string) {
-  const top = app.stack.at(-1);
-  if (top?.kind === "entry" && top.id === id) app.stack.pop();
-  app.hidden.push(id);
-  const timer = setTimeout(() => {
-    app.entries = app.entries.filter((e) => e.id !== id);
-    app.hidden = app.hidden.filter((h) => h !== id);
-  }, UNDO_MS);
-  toast("已删除", () => {
-    clearTimeout(timer);
-    app.hidden = app.hidden.filter((h) => h !== id);
-  });
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;

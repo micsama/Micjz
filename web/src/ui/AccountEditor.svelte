@@ -2,6 +2,7 @@
   // 新建或编辑账户：名称、机构、银行卡；按「完成」保存。
   import { onMount, tick } from "svelte";
   import Icon from "./Icon.svelte";
+  import SheetHead from "./SheetHead.svelte";
   import { holdKeyboard } from "./nav.svelte";
   import AccountLogo from "./AccountLogo.svelte";
   import { removeAccount, saveAccount, toast } from "../lib/store.svelte";
@@ -51,29 +52,34 @@
     numberInput?.focus();
   }
 
-  function submit() {
+  /** 正在等服务器：不重复提交。 */
+  let busy = $state(false);
+
+  async function submit() {
+    if (busy) return;
     const n = name.trim();
     const digits = number.replace(/\s/g, "");
     if (!n) return void (error = { at: "name", text: "填一个名称" });
     if (cardType !== "none" && !/^\d{12,19}$/.test(digits)) return void (error = { at: "card", text: "卡号是 12～19 位数字" });
     const card = cardType === "none" ? null : { type: cardType, number: digits };
-    const err = saveAccount({ id: old?.id ?? 0, name: n, brand, card });
+    busy = true;
+    const err = await saveAccount({ id: old?.id ?? 0, name: n, brand, card });
+    busy = false;
     if (err) return void (error = { at: "name", text: err });
     onclose();
   }
 
-  function remove() {
-    const err = removeAccount(old!.id);
+  async function remove() {
+    if (busy) return;
+    busy = true;
+    const err = await removeAccount(old!.id);
+    busy = false;
     if (err) return toast(err);
     onclose();
   }
 </script>
 
-<header class="head">
-  <button class="round" onclick={onclose} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2>{old ? "编辑账户" : "新建账户"}</h2>
-  <button class="link" onclick={submit}>完成</button>
-</header>
+<SheetHead icon="card" title={old ? "编辑账户" : "新建账户"} {onclose} action={{ label: "完成", run: submit }} />
 
 <div class="body">
   <div class="name">
@@ -130,37 +136,6 @@
 </div>
 
 <style>
-  .head {
-    display: grid;
-    grid-template-columns: 80px 1fr 80px;
-    align-items: center;
-    padding: 0 16px 10px;
-  }
-  h2 {
-    margin: 0;
-    text-align: center;
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .round {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 0;
-    display: grid;
-    place-items: center;
-    background: var(--fill);
-    color: var(--label2);
-  }
-  .link {
-    justify-self: end;
-    border: 0;
-    background: none;
-    color: var(--tint);
-    font: inherit;
-    font-size: 17px;
-    font-weight: 600;
-  }
   .body {
     display: grid;
     gap: 10px;

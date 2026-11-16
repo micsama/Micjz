@@ -7,7 +7,8 @@
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { Reorder } from "../../ui/reorder.svelte";
   import { fade } from "svelte/transition";
-  import { app, balanceOf, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
+  import { app, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
+  import { balanceOf } from "../../lib/query";
   import { money } from "../../lib/format";
   import { brand, cardLabel } from "../../lib/look";
   import type { Account } from "../../lib/types";

@@ -2,7 +2,8 @@
   import Icon from "../../ui/Icon.svelte";
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
-  import { app, back, edit, remove } from "../../lib/store.svelte";
+  import { app, back, edit, loadRecognition, remove } from "../../lib/store.svelte";
+  import { imageUrl } from "../../lib/api";
   import { changes, fieldsOf, labelOf } from "../../lib/fields";
   import { dateTime } from "../../lib/format";
   import { view } from "../../lib/view";
@@ -18,6 +19,11 @@
   const v = $derived(view(entry));
   const shot = $derived(entry.recognition_id ? app.recognitions[entry.recognition_id] : undefined);
   const diff = $derived(shot ? changes(entry, shot) : []);
+  /** 截图没留存下来（后台写入失败）时不显示坏图。 */
+  let lost = $state(false);
+  $effect(() => {
+    if (entry.recognition_id) void loadRecognition(entry.recognition_id);
+  });
   const rows = $derived(fieldsOf(entry).filter((f) => f.key !== "amount_cents"));
   const tint = ["--c1", "--c4", "--c3", "--c0", "--c5", "--c2", "--c7"];
 </script>
@@ -51,11 +57,13 @@
   {#if shot}
     <h3 class="cap">截图</h3>
     <div class="group">
-      <button class="shot" onclick={() => (viewing = true)}>
-        <img src={shot.image} alt="支付截图" />
+      <button class="shot" onclick={() => (viewing = true)} disabled={lost}>
+        {#if !lost}<img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />{/if}
         <span class="shot-text">
           {#if diff.length}<b>改过 {diff.length} 处</b><small>最初显示 → 现在</small>{/if}
-          <span class="view"><Icon name="photo" size={15} />查看截图</span>
+          <span class="view">
+            {#if lost}截图没留存下来{:else}<Icon name="photo" size={15} />查看截图{/if}
+          </span>
         </span>
       </button>
       {#each diff as d (d.def.key)}
@@ -80,7 +88,7 @@
   actions={[{ label: "删除账目", danger: true, run: () => remove(entry.id) }]}
   oncancel={() => (confirm = false)}
 />
-{#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
+{#if viewing && shot}<ImageViewer src={imageUrl(shot.id)} onclose={() => (viewing = false)} />{/if}
 
 <style>
   .page {

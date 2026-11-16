@@ -1,13 +1,13 @@
 <script lang="ts">
   // 设置里的记账周期、预算：周期点一下即保存；预算按「完成」保存。
   import { onMount, tick } from "svelte";
-  import Icon from "./Icon.svelte";
-  import { prefs, setPrefs } from "../lib/store.svelte";
+  import SheetHead from "./SheetHead.svelte";
+  import { settings, saveSettings } from "../lib/store.svelte";
   import { parseCents, yuanInput } from "../lib/format";
 
   let { which, onclose }: { which: "cycle" | "budget"; onclose: () => void } = $props();
 
-  let text = $state(prefs.budget === null ? "" : yuanInput(prefs.budget));
+  let text = $state(settings.budget_cents === null ? "" : yuanInput(settings.budget_cents));
   let error = $state("");
   let input = $state<HTMLInputElement>();
 
@@ -29,18 +29,17 @@
   }
 
   function done(budget: number | null) {
-    setPrefs({ budget });
+    saveSettings({ budget_cents: budget });
     onclose();
   }
 </script>
 
-<header class="head">
-  <button class="round" onclick={onclose} aria-label="关闭"><Icon name="xmark" size={14} weight={2.6} /></button>
-  <h2>
-    <span class="glyph"><Icon name={which === "cycle" ? "calendar" : "target"} size={19} weight={2.2} /></span>{which === "cycle" ? "记账周期" : "每期预算"}
-  </h2>
-  {#if which === "budget"}<button class="link" onclick={submit}>完成</button>{:else}<span></span>{/if}
-</header>
+<SheetHead
+  icon={which === "cycle" ? "calendar" : "target"}
+  title={which === "cycle" ? "记账周期" : "每期预算"}
+  {onclose}
+  action={which === "budget" ? { label: "完成", run: submit } : undefined}
+/>
 
 <div class="body">
   {#if which === "cycle"}
@@ -49,15 +48,15 @@
       {#each Array.from({ length: 28 }, (_, i) => i + 1) as d (d)}
         <button
           class="num"
-          class:on={prefs.cycleDay === d}
+          class:on={settings.cycle_day === d}
           onclick={() => {
-            setPrefs({ cycleDay: d });
+            saveSettings({ cycle_day: d });
             onclose();
           }}>{d}</button
         >
       {/each}
     </div>
-    <p class="hint">{prefs.cycleDay === 1 ? "现在按自然月统计" : `现在每月 ${prefs.cycleDay} 号到下月 ${prefs.cycleDay - 1} 号算一期`}</p>
+    <p class="hint">{settings.cycle_day === 1 ? "现在按自然月统计" : `现在每月 ${settings.cycle_day} 号到下月 ${settings.cycle_day - 1} 号算一期`}</p>
   {:else}
     <label class="amount" class:bad={error}>
       <span class="cur">¥</span>
@@ -72,51 +71,11 @@
       />
     </label>
     <p class="hint" class:bad={error}>{error || "每个记账周期的支出上限，留空就是不设"}</p>
-    {#if prefs.budget !== null}<button class="clear" onclick={() => done(null)}>不设预算</button>{/if}
+    {#if settings.budget_cents !== null}<button class="clear" onclick={() => done(null)}>不设预算</button>{/if}
   {/if}
 </div>
 
 <style>
-  .head {
-    display: grid;
-    grid-template-columns: 80px 1fr 80px;
-    align-items: center;
-    padding: 0 16px 10px;
-  }
-  .glyph {
-    display: flex;
-    color: var(--tint);
-  }
-  h2 {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    text-align: center;
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .round {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 0;
-    display: grid;
-    place-items: center;
-    background: var(--fill);
-    color: var(--label2);
-  }
-  .link {
-    justify-self: end;
-    border: 0;
-    background: none;
-    padding: 6px 0;
-    color: var(--tint);
-    font: inherit;
-    font-size: 17px;
-    font-weight: 600;
-  }
   .body {
     padding: 4px 16px 12px;
   }

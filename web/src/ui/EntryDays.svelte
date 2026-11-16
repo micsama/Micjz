@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Entry } from "../lib/types";
-  import { byDay, open, remove } from "../lib/store.svelte";
+  import { open, remove } from "../lib/store.svelte";
+  import { byDay } from "../lib/query";
   import { dayLabel, money, time } from "../lib/format";
   import { view } from "../lib/view";
   import SwipeRow from "./SwipeRow.svelte";

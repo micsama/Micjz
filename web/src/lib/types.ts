@@ -55,12 +55,14 @@ export interface Entry {
   tag_ids: number[];
 }
 
-/** 一次识别：截图和用户在快捷指令里第一眼看到的草稿（服务器补过默认值）。 */
+/** 一次识别：用户在快捷指令里第一眼看到的草稿（服务器补过默认值）。截图另取，见 `imageUrl`。 */
 export interface Recognition {
   id: string;
-  image: string;
-  /** 最初显示的字段；金额可能没识别出来。 */
-  first: Omit<Fields, "amount_cents"> & { amount_cents: number | null };
+  outcome: "ok" | "rejected" | "error";
+  /** 不像支付页、识别出错的原因。 */
+  reason: string | null;
+  /** 最初显示的字段。金额可能没识别出来；分类、账户后来改名或删掉了就对不上，为空。 */
+  first: Omit<Fields, "amount_cents" | "category_id" | "account_id"> & { amount_cents: number | null; category_id: number | null; account_id: number | null };
 }
 
 /** 详情里能改的字段。 */

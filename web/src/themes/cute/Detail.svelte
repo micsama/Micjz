@@ -1,7 +1,8 @@
 <script lang="ts">
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
-  import { app, back, edit, remove } from "../../lib/store.svelte";
+  import { app, back, edit, loadRecognition, remove } from "../../lib/store.svelte";
+  import { imageUrl } from "../../lib/api";
   import { changes, fieldsOf, labelOf } from "../../lib/fields";
   import { dateTime } from "../../lib/format";
   import { view } from "../../lib/view";
@@ -16,6 +17,11 @@
   const v = $derived(view(entry));
   const shot = $derived(entry.recognition_id ? app.recognitions[entry.recognition_id] : undefined);
   const diff = $derived(shot ? changes(entry, shot) : []);
+  /** 截图没留存下来（后台写入失败）时不显示坏图。 */
+  let lost = $state(false);
+  $effect(() => {
+    if (entry.recognition_id) void loadRecognition(entry.recognition_id);
+  });
   const tiles = $derived(fieldsOf(entry).filter((f) => f.key !== "amount_cents"));
 </script>
 
@@ -48,10 +54,12 @@
   {#if shot}
     <h3 class="cap">📸 截图</h3>
     <section class="notes">
-      <button class="polaroid" onclick={() => (viewing = true)}>
-        <img src={shot.image} alt="支付截图" />
-        <span>原图</span>
-      </button>
+      {#if !lost}
+        <button class="polaroid" onclick={() => (viewing = true)}>
+          <img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />
+          <span>原图</span>
+        </button>
+      {/if}
       {#if diff.length}
         <div class="sticky">
           <b>后来改了 {diff.length} 处</b>
@@ -73,7 +81,7 @@
   actions={[{ label: "删掉它", danger: true, run: () => remove(entry.id) }]}
   oncancel={() => (confirm = false)}
 />
-{#if viewing && shot}<ImageViewer src={shot.image} onclose={() => (viewing = false)} />{/if}
+{#if viewing && shot}<ImageViewer src={imageUrl(shot.id)} onclose={() => (viewing = false)} />{/if}
 
 <style>
   .page {

@@ -5,25 +5,8 @@
 
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import {
-    app,
-    breakdown,
-    budgetOf,
-    categoryOf,
-    earning,
-    elapsedDays,
-    fallbackOf,
-    open,
-    prefs,
-    spendBars,
-    spendIndex,
-    spending,
-    sumBy,
-    todayIndex,
-    topOf,
-    statEntries,
-    filtering,
-  } from "../../lib/store.svelte";
+  import { app, categoryOf, fallbackOf, open, settings, topOf, filtering } from "../../lib/store.svelte";
+  import { breakdown, budgetOf, earning, elapsedDays, spendBars, spendIndex, spending, sumBy, todayIndex, statEntries } from "../../lib/query";
   import { badge, dateTime, isYear, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
   import { color, slices } from "../../lib/look";
   import { isSpend } from "../../lib/kinds";
@@ -38,7 +21,7 @@
   const earned = $derived(earning(list));
   const income = $derived(earned.cents);
   const prev = $derived(spending(statEntries(shiftPeriod(app.period, -1))).cents);
-  const label = $derived(periodLabel(app.period, prefs.cycleDay));
+  const label = $derived(periodLabel(app.period, settings.cycle_day));
   const year = $derived(isYear(app.period));
   /** 柱子的单位：按月看是天，按年看是月。 */
   const unit = $derived(year ? "月" : "日");
@@ -51,7 +34,7 @@
   const peak = $derived(Math.max(1, ...bars));
   const budget = $derived(budgetOf(app.period));
   const pace = $derived(elapsedDays(app.period));
-  const start = $derived(periodRange(app.period, prefs.cycleDay).start);
+  const start = $derived(periodRange(app.period, settings.cycle_day).start);
   const dateOf = (i: number) => {
     if (year) return `${i + 1}月`;
     const d = new Date(start);

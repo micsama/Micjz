@@ -4,7 +4,8 @@
   import { quintOut } from "svelte/easing";
   import Icon from "../../ui/Icon.svelte";
   import SpendingCard from "../../ui/SpendingCard.svelte";
-  import { app, byMonth, earning, periodEntries, prefs, spending } from "../../lib/store.svelte";
+  import { app, settings } from "../../lib/store.svelte";
+  import { byMonth, earning, periodEntries, spending } from "../../lib/query";
   import { isYear, money, periodLabel } from "../../lib/format";
   import PeriodHeader from "./PeriodHeader.svelte";
 
@@ -14,11 +15,11 @@
 
   const list = $derived(periodEntries(app.period));
   const year = $derived(isYear(app.period));
-  const label = $derived(periodLabel(app.period, prefs.cycleDay));
+  const label = $derived(periodLabel(app.period, settings.cycle_day));
 
   // 按年看时不列每一笔，按月汇总；点一个月进到那个月。
   const months = $derived(year ? [...byMonth(list)].map(([key, es]) => ({ key, out: spending(es), income: earning(es).cents })) : []);
-  const monthBudget = $derived(prefs.budget);
+  const monthBudget = $derived(settings.budget_cents);
   const monthScale = $derived(Math.max(1, monthBudget ?? 0, ...months.map((m) => m.out.cents)));
 
   function drill(key: string) {

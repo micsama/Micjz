@@ -5,9 +5,10 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "vite --host",
+    "demo": "vite --host --mode mock",
     "build": "vite build",
-    "format": "prettier --write src",
-    "check": "prettier --check src && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+    "format": "prettier --write src mock vite.config.ts",
+    "check": "prettier --check src mock vite.config.ts && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",

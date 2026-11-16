@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { app, accountOf, categoryOf, balanceOf, clearFilter, filtering, type Dim } from "../lib/store.svelte";
+  import { app, accountOf, categoryOf, clearFilter, filtering, type Dim } from "../lib/store.svelte";
+  import { balanceOf } from "../lib/query";
   import Icon from "./Icon.svelte";
   import { money } from "../lib/format";
   import { cardLabel } from "../lib/look";

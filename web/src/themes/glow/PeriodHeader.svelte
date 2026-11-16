@@ -4,7 +4,8 @@
   import { scale } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import Icon from "../../ui/Icon.svelte";
-  import { app, currentPeriod, isLatest, monthTotals, prefs, setUnit, type Sum } from "../../lib/store.svelte";
+  import { app, currentPeriod, isLatest, settings, setUnit, want } from "../../lib/store.svelte";
+  import { monthTotals, type Sum } from "../../lib/query";
   import { isYear, periodLabel, shiftPeriod } from "../../lib/format";
 
   /**
@@ -13,7 +14,7 @@
   let { onshift }: { onshift?: (delta: number) => void } = $props();
 
   const year = $derived(isYear(app.period));
-  const label = $derived(periodLabel(app.period, prefs.cycleDay));
+  const label = $derived(periodLabel(app.period, settings.cycle_day));
   const latest = $derived(isLatest(app.period));
 
   let open = $state(false);
@@ -21,8 +22,14 @@
   let shown = $state(0);
   const totals = $derived(open ? monthTotals() : new Map<string, Sum>());
   const thisYear = $derived(Number(currentPeriod(true)));
-  const firstYear = $derived(Math.min(thisYear, ...[...totals.keys()].map((k) => Number(k.slice(0, 4)))));
+  /** 最早一笔所在的年份，服务器告诉的，不用先把历史都取下来。 */
+  const firstYear = $derived(app.earliest ? Math.min(thisYear, new Date(app.earliest).getFullYear()) : thisYear);
   const years = $derived(Array.from({ length: thisYear - firstYear + 1 }, (_, i) => String(thisYear - i)));
+  // 面板要显示每月（年）的支出：打开时把看得到的年份取下来，取到一年填一年。
+  $effect(() => {
+    if (!open) return;
+    for (const y of year ? years : [String(shown)]) void want(y);
+  });
 
   const yearTotal = (y: string) =>
     [...totals].filter(([k]) => k.startsWith(`${y}-`)).reduce((s, [, t]) => ({ cents: s.cents + t.cents, count: s.count + t.count }), { cents: 0, count: 0 });
@@ -102,7 +109,7 @@
           {/each}
         </div>
       {/if}
-      <p>{year ? "下面是每年的支出" : "下面是每月的支出"}{prefs.cycleDay === 1 ? "" : `，每期从 ${prefs.cycleDay} 号起`}</p>
+      <p>{year ? "下面是每年的支出" : "下面是每月的支出"}{settings.cycle_day === 1 ? "" : `，每期从 ${settings.cycle_day} 号起`}</p>
     </div>
   {/if}
 </div>

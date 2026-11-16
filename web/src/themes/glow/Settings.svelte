@@ -1,35 +1,18 @@
 <script lang="ts">
   import Icon from "../../ui/Icon.svelte";
   import Sheet from "../../ui/Sheet.svelte";
+  import ActionSheet from "../../ui/ActionSheet.svelte";
   import PrefEditor from "../../ui/PrefEditor.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
-  import { app, prefs, toast } from "../../lib/store.svelte";
+  import { logout, settings } from "../../lib/store.svelte";
+  import { EXPORT_URL } from "../../lib/api";
   import { money } from "../../lib/format";
   import { setTheme, themeState } from "../../lib/theme.svelte";
   import { THEMES } from "../index";
 
   let collapsed = $state(false);
   let editing = $state<"cycle" | "budget" | null>(null);
-  // 原型里模拟更新的几个阶段。
-  const STAGES = ["拉取代码", "构建", "重启服务"];
-  let stage = $state(-1);
-  let updated = $state(false);
-
-  function runUpdate() {
-    if (stage >= 0) return;
-    updated = false;
-    stage = 0;
-    const tick = () => {
-      if (stage < STAGES.length - 1) {
-        stage += 1;
-        setTimeout(tick, 1100);
-      } else {
-        stage = -1;
-        updated = true;
-      }
-    };
-    setTimeout(tick, 1100);
-  }
+  let leaving = $state(false);
 </script>
 
 <div class="page" onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
@@ -62,7 +45,7 @@
     <button class="row" onclick={() => (editing = "cycle")}>
       <span class="fi" style:--fc="var(--c2)"><Icon name="calendar" size={18} weight={2.2} /></span>
       <span class="label">记账周期</span>
-      <span class="value">{prefs.cycleDay === 1 ? "自然月" : `每月 ${prefs.cycleDay} 号起`}</span>
+      <span class="value">{settings.cycle_day === 1 ? "自然月" : `每月 ${settings.cycle_day} 号起`}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
     <button
@@ -74,32 +57,42 @@
     >
       <span class="fi" style:--fc="var(--c0)"><Icon name="target" size={18} weight={2.2} /></span>
       <span class="label">每期预算</span>
-      <span class="value num">{prefs.budget === null ? "不设" : money(prefs.budget)}</span>
+      <span class="value num">{settings.budget_cents === null ? "不设" : money(settings.budget_cents)}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
   </div>
 
-  <h3 class="cap">服务</h3>
+  <h3 class="cap">数据</h3>
   <div class="group">
-    <button class="row" onclick={runUpdate}>
-      <span class="fi" style:--fc="var(--c1)"><Icon name="update" size={18} weight={2.2} /></span>
-      <span class="label">更新到最新版本</span>
-      <span class="value">
-        {#if stage >= 0}<span class="spin"></span>{STAGES[stage]}…{:else if updated}已是最新 · 0c3c136{/if}
-      </span>
-    </button>
     <div class="row">
       <span class="fi" style:--fc="var(--c7)"><Icon name="receipt" size={18} weight={2.2} /></span>
       <span class="label">账目</span>
-      <span class="value num">{app.entries.length} 笔</span>
+      <span class="value num">{settings.entry_count} 笔</span>
+    </div>
+    <a class="row link" href={EXPORT_URL} download>
+      <span class="fi" style:--fc="var(--c5)"><Icon name="download" size={18} weight={2.2} /></span>
+      <span class="label">导出 CSV</span>
+      <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+    </a>
+    <div class="row">
+      <span class="fi" style:--fc="var(--c1)"><Icon name="gear" size={18} weight={2.2} /></span>
+      <span class="label">版本</span>
+      <span class="value num">{settings.version}</span>
     </div>
   </div>
 
   <div class="group out">
-    <button class="row center" onclick={() => toast("原型里不能退出")}>退出登录</button>
+    <button class="row center" onclick={() => (leaving = true)}>退出登录</button>
   </div>
   <div class="tail"></div>
 </div>
+
+<ActionSheet
+  open={leaving}
+  title="退出后这台设备要重新输入 token"
+  actions={[{ label: "退出登录", danger: true, run: logout }]}
+  oncancel={() => (leaving = false)}
+/>
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
   {#if editing}<PrefEditor which={editing} onclose={() => (editing = null)} />{/if}
@@ -261,6 +254,7 @@
     margin-top: 26px;
   }
   .row {
+    box-sizing: border-box;
     position: relative;
     display: flex;
     align-items: center;
@@ -276,7 +270,14 @@
     text-align: left;
     transition: background-color 0.35s;
   }
-  button.row:active {
+  .row.link {
+    text-decoration: none;
+  }
+  .row.link .label {
+    flex: 1;
+  }
+  button.row:active,
+  .row.link:active {
     background: var(--press);
     transition: none;
   }
@@ -315,19 +316,6 @@
   .center {
     justify-content: center;
     color: var(--red);
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 2px solid var(--label3);
-    border-top-color: var(--tint);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 100px);

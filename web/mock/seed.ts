@@ -1,7 +1,7 @@
-// 原型用的假数据：分类、账户、标签照 seed.sql，账目随机但固定。
-import type { Catalog, Category, Entry, FlowKind, Recognition } from "./types";
-import { effect } from "./kinds";
-import { money } from "./format";
+// 假后端的初始数据：分类、账户、标签照 seed.sql，账目随机但固定。
+import type { Catalog, Category, Entry, FlowKind, Recognition } from "../src/lib/types";
+import { effect } from "../src/lib/kinds";
+import { money } from "../src/lib/format";
 
 type Node = [name: string, key: string];
 const TREE: [FlowKind, Node, Node[]][] = [
@@ -89,7 +89,7 @@ for (const [kind, [name, key], subs] of TREE) {
   for (const [name, key] of subs) categories.push({ id: categories.length + 1, kind, parent_id: parent, name, key });
 }
 
-export const catalog: Catalog = {
+export const CATALOG: Catalog = {
   categories,
   accounts: [
     { id: 1, name: "微信", brand: "微信", card: null },
@@ -136,21 +136,19 @@ function rng(seed: number) {
   return () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
 }
 
-/** 本地时区的 ISO 8601。 */
-function iso(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  const off = -d.getTimezoneOffset();
-  const tz = `${off >= 0 ? "+" : "-"}${p(Math.floor(Math.abs(off) / 60))}:${p(Math.abs(off) % 60)}`;
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00${tz}`;
-}
+/** 契约里的时间：UTC、精确到秒。 */
+export const stamp = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 
 type Draft = Omit<Entry, "id" | "recognition_id" | "created_at" | "occurred_at" | "to_account_id" | "merchant" | "note" | "tag_ids"> &
   Partial<Pick<Entry, "to_account_id" | "merchant" | "note" | "tag_ids">>;
 
-export function seed(now = new Date()): { entries: Entry[]; recognitions: Record<string, Recognition> } {
+/** 识别记录加它的截图（SVG）。 */
+export type Shot = Recognition & { image: string };
+
+export function seed(now = new Date()): { entries: Entry[]; recognitions: Record<string, Shot> } {
   const r = rng(42);
   const entries: Entry[] = [];
-  const recognitions: Record<string, Recognition> = {};
+  const recognitions: Record<string, Shot> = {};
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
   const id = (at: Date) => `01${at.getTime().toString(36)}${Math.floor(r() * 1e6).toString(36)}`;
 
@@ -164,13 +162,14 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
       ...d,
       id: id(at),
       recognition_id: null,
-      occurred_at: iso(at),
-      created_at: iso(at),
+      occurred_at: stamp(at),
+      created_at: stamp(at),
     };
     if (first) {
       e.recognition_id = id(at);
-      const shown = { ...e, ...first };
-      recognitions[e.recognition_id] = { id: e.recognition_id, image: screenshot(shown), first: shown };
+      const { kind, amount_cents, category_id, account_id, to_account_id, merchant, occurred_at, note, tag_ids } = e;
+      const shown = { kind, amount_cents, category_id, account_id, to_account_id, merchant, occurred_at, note, tag_ids, ...first };
+      recognitions[e.recognition_id] = { id: e.recognition_id, outcome: "ok", reason: null, image: screenshot(shown), first: shown };
     }
     entries.push(e);
   }
@@ -216,7 +215,7 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
   // 每个账户的第一笔平账是期初余额：按此刻余额倒推。
   const start = new Date(now);
   start.setDate(now.getDate() - 400);
-  for (const a of catalog.accounts) {
+  for (const a of CATALOG.accounts) {
     const opening = BALANCES[a.id] - entries.reduce((s, e) => s + effect(e, a.id), 0);
     if (opening) add(start, { kind: "adjust", amount_cents: opening, category_id: null, account_id: a.id, note: "期初余额" });
   }
@@ -229,7 +228,7 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
 function screenshot(f: Recognition["first"]): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const amount = money(f.amount_cents ?? 0).replace("¥", "");
-  const account = catalog.accounts.find((a) => a.id === f.account_id)?.name ?? "";
+  const account = CATALOG.accounts.find((a) => a.id === f.account_id)?.name ?? "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 844">
 <rect width="390" height="844" fill="#EDEDED"/>
 <rect y="0" width="390" height="96" fill="#EDEDED"/>
@@ -248,5 +247,5 @@ function screenshot(f: Recognition["first"]): string {
 <rect x="120" y="700" width="150" height="44" rx="8" fill="#07C160"/>
 <text x="195" y="728" font-size="17" text-anchor="middle" font-family="-apple-system" fill="#fff">完成</text>
 </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return svg;
 }
