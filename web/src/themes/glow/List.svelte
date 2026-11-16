@@ -1,0 +1,530 @@
+<script lang="ts">
+  import { fly } from "svelte/transition";
+  import { quintOut } from "svelte/easing";
+  import Icon from "../../ui/Icon.svelte";
+  import Donut from "../../ui/Donut.svelte";
+  import SwipeRow from "../../ui/SwipeRow.svelte";
+  import { app, back, breakdown, byDay, categoryIndex, currentPeriod, daily, open, openStats, periodEntries, prefs, remove, todayIndex, total } from "../../lib/store.svelte";
+  import { dayLabel, leaf, money, periodLabel, shiftPeriod, time } from "../../lib/format";
+  import { brand, cardLabel, color, emoji, slices } from "../../lib/look";
+
+  // 传了账户就是推入的账户明细页：只看这个账户的账目，不显示预算。
+  let { account }: { account?: string } = $props();
+  const acct = $derived(account ? app.catalog.accounts.find((a) => a.name === account) : undefined);
+
+  let collapsed = $state(false);
+  let dir = $state(1);
+
+  const list = $derived(periodEntries(app.period, account));
+  const days = $derived(byDay(list));
+  const spent = $derived(total(list, "expense"));
+  const income = $derived(total(list, "income"));
+  const idx = (name: string) => Math.max(0, app.catalog.expense.findIndex((c) => c.name === name));
+  const parts = $derived(breakdown(list));
+  const ring = $derived(slices(parts, idx));
+  const bars = $derived(daily(app.period, list));
+  const peak = $derived(Math.max(1, ...bars));
+  const today = $derived(todayIndex(app.period));
+  const label = $derived(periodLabel(app.period, prefs.cycleDay));
+  const latest = $derived(app.period >= currentPeriod());
+  const budget = $derived(account ? null : prefs.budget);
+  const left = $derived(budget === null ? 0 : budget - spent);
+  // 本期剩余天数（含今天），只对当前周期有意义。
+  const daysLeft = $derived(today < 0 ? 0 : bars.length - today);
+
+  const glow = $derived([0, 1, 2].map((i) => color(idx(parts[i]?.name ?? "其他") + (parts[i] ? 0 : i))));
+
+  function go(delta: number) {
+    dir = delta;
+    app.period = shiftPeriod(app.period, delta);
+  }
+
+  const [yuan, cents] = $derived(money(spent).split("."));
+</script>
+
+<div class="page" onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
+  <header class="bar" class:collapsed class:pushed={account}>
+    {#if account}<button class="back" onclick={back}><Icon name="chevron-left" size={22} weight={2.6} />财富</button>{/if}
+    <span>{account ?? label.title}</span>
+  </header>
+
+  {#if account}
+    <div class="acct">
+      <span class="logo" style:background={brand(account).bg}>{brand(account).mark}</span>
+      <span><b>{account}</b><small class="num">{acct?.card ? cardLabel(acct.card) : "无卡号"}</small></span>
+    </div>
+  {/if}
+  <div class="large">
+    <h1>{label.title}<small>{label.sub}</small></h1>
+    <div class="switch">
+      <button onclick={() => go(-1)} aria-label="上个月"><Icon name="chevron-left" size={18} weight={2.6} /></button>
+      <button onclick={() => go(1)} disabled={latest} aria-label="下个月"><Icon name="chevron-right" size={18} weight={2.6} /></button>
+    </div>
+  </div>
+
+  {#key app.period}
+    <div in:fly={{ x: 40 * dir, duration: 420, easing: quintOut }}>
+      <button class="hero" style:--g1={glow[0]} style:--g2={glow[1]} style:--g3={glow[2]} onclick={openStats}>
+        <span class="glass"></span>
+        <span class="cap">{account ? "这个账户" : ""}{prefs.cycleDay === 1 ? "本月支出" : "本期支出"}<Icon name="chevron-right" size={13} weight={2.8} /></span>
+        <span class="big num">{yuan}<span>.{cents}</span></span>
+        {#if budget !== null}
+          <span class="budget">
+            <span class="track"><span class="used" class:over={left < 0} style:width="{Math.min(100, (spent / budget) * 100)}%"></span></span>
+            <span class="sub num">
+              {#if left >= 0}预算还剩 {money(left)}{#if daysLeft} · 每天可花 {money(Math.floor(left / daysLeft))}{/if}{:else}超出预算 {money(-left)}{/if}
+            </span>
+          </span>
+        {:else}
+          <span class="sub num">收入 {money(income)} · {list.length} 笔</span>
+        {/if}
+        <span class="bars" aria-hidden="true">
+          {#each bars as v, i (i)}
+            <i class:today={i === today} class:future={today >= 0 && i > today} style:height="{Math.max(6, (v / peak) * 100)}%"></i>
+          {/each}
+        </span>
+      </button>
+
+      {#if ring.length}
+        <button class="mix" onclick={openStats}>
+          <Donut slices={ring} size={112} thickness={14}>
+            <small>{parts.length} 类</small>
+            <b class="num">{list.filter((e) => e.kind === "expense").length} 笔</b>
+          </Donut>
+          <ul>
+            {#each ring as p (p.name)}
+              <li><b style:background={p.color}></b><span class="n">{p.name}</span><span class="num">{Math.round((p.cents / spent) * 100)}%</span></li>
+            {/each}
+          </ul>
+        </button>
+      {/if}
+
+      {#each days as g (g.day)}
+        <h3 class="day"><span>{dayLabel(g.at)}</span>{#if g.spent}<span class="num">支出 {money(g.spent)}</span>{/if}</h3>
+        <div class="group">
+          {#each g.entries as e (e.id)}
+            <SwipeRow actions={[{ label: "删除", danger: true, run: () => remove(e.id) }]}>
+              <button class="row" onclick={() => open(e.id)}>
+                <span class="icon" style:--c={color(categoryIndex(e))}>{emoji(e)}</span>
+                <span class="main">
+                  <span class="title">{e.merchant ?? leaf(e)}</span>
+                  <span class="meta">{leaf(e)} · {e.account}{#if e.tags.length}{" · "}<em>{e.tags.join(" ")}</em>{/if}</span>
+                </span>
+                <span class="right">
+                  <span class="amt num" class:income={e.kind === "income"}>{e.kind === "income" ? money(e.amount_cents, true) : money(e.amount_cents)}</span>
+                  <span class="time num">{time(e.occurred_at)}</span>
+                </span>
+              </button>
+            </SwipeRow>
+          {/each}
+        </div>
+      {:else}
+        <div class="empty">
+          <div class="em">🧾</div>
+          <p>这个月还没有账目</p>
+          <small>支付完成后轻点手机背面，截图就会记下来</small>
+        </div>
+      {/each}
+    </div>
+  {/key}
+  <div class="tail"></div>
+</div>
+
+<style>
+  .page {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-top: env(safe-area-inset-top);
+  }
+  .bar {
+    position: sticky;
+    top: calc(-1 * env(safe-area-inset-top));
+    z-index: 5;
+    height: 44px;
+    margin-top: calc(-1 * env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    transition: background-color 0.2s, box-shadow 0.2s;
+  }
+  .bar span {
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .bar.collapsed {
+    background: var(--bar-bg);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    box-shadow: 0 0.5px 0 var(--sep);
+  }
+  .bar.collapsed span {
+    opacity: 1;
+    transform: none;
+  }
+  .bar.pushed {
+    grid-template-columns: 1fr auto 1fr;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .bar.pushed::after {
+    content: "";
+  }
+  .back {
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    border: 0;
+    background: none;
+    color: var(--tint);
+    font: inherit;
+    font-size: 17px;
+    font-weight: 400;
+    padding: 6px 4px;
+  }
+  .acct {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 20px 12px;
+  }
+  .acct .logo {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .acct > span:last-child {
+    display: grid;
+  }
+  .acct b {
+    font-size: 20px;
+  }
+  .acct small {
+    font-size: 13px;
+    color: var(--label2);
+  }
+  .large {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 16px 10px 20px;
+    margin-top: -6px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  h1 small {
+    margin-left: 8px;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--label2);
+  }
+  .switch {
+    display: flex;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  .switch button {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 0;
+    display: grid;
+    place-items: center;
+    background: var(--fill);
+    color: var(--tint);
+  }
+  .switch button:disabled {
+    color: var(--label3);
+  }
+  .switch button:active {
+    transform: scale(0.9);
+  }
+
+  .hero {
+    position: relative;
+    display: grid;
+    width: calc(100% - 32px);
+    transition: transform 0.25s;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    overflow: hidden;
+    margin: 4px 16px 0;
+    padding: 18px 20px 14px;
+    border-radius: 24px;
+    color: #fff;
+    background:
+      radial-gradient(120% 90% at 0% 0%, var(--g1) 0%, transparent 60%),
+      radial-gradient(90% 80% at 100% 10%, var(--g2) 0%, transparent 62%),
+      radial-gradient(100% 90% at 70% 120%, var(--g3) 0%, transparent 60%),
+      #241a3a;
+    background-size: 160% 160%;
+    animation: drift 14s ease-in-out infinite alternate;
+    box-shadow: 0 14px 34px -14px color-mix(in oklab, var(--g1) 70%, transparent);
+  }
+  @keyframes drift {
+    to {
+      background-position: 100% 60%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero {
+      animation: none;
+    }
+  }
+  .glass {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.22), transparent 40%);
+    pointer-events: none;
+  }
+  .hero:active,
+  .mix:active {
+    transform: scale(0.98);
+  }
+  .hero > span {
+    position: relative;
+  }
+  .cap {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.85;
+    letter-spacing: 0.04em;
+  }
+  .big {
+    margin-top: 2px;
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .big span {
+    font-size: 24px;
+    opacity: 0.8;
+  }
+  .sub {
+    font-size: 14px;
+    opacity: 0.85;
+  }
+  .budget {
+    display: grid;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+  }
+  .used {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: #fff;
+    transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .used.over {
+    background: #ffb4a8;
+  }
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 46px;
+    margin-top: 14px;
+  }
+  .bars i {
+    flex: 1;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.38);
+  }
+  .bars i.future {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .bars i.today {
+    background: #fff;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+  }
+
+  .mix {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    width: calc(100% - 32px);
+    margin: 12px 16px 0;
+    padding: 16px 18px;
+    border: 0;
+    border-radius: var(--radius-group);
+    background: var(--card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    box-shadow: var(--shadow-card);
+    transition: transform 0.25s;
+  }
+  .mix small {
+    font-size: 12px;
+    color: var(--label2);
+  }
+  .mix b.num {
+    font-size: 17px;
+  }
+  .mix ul {
+    flex: 1;
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 14px;
+  }
+  .mix li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mix li b {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+  }
+  .mix li .n {
+    flex: 1;
+  }
+  .mix li .num {
+    color: var(--label2);
+  }
+
+  .day {
+    display: flex;
+    justify-content: space-between;
+    margin: 22px 32px 7px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--label2);
+  }
+  .group {
+    margin: 0 16px;
+    border-radius: var(--radius-group);
+    overflow: hidden;
+    background: var(--card);
+    box-shadow: var(--shadow-card);
+  }
+  .group > :global(.swipe + .swipe)::before {
+    content: "";
+    position: absolute;
+    left: 62px;
+    right: 0;
+    top: 0;
+    height: 0.5px;
+    background: var(--sep);
+    z-index: 2;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 62px;
+    padding: 9px 16px 9px 12px;
+    border: 0;
+    background: var(--card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    transition: background-color 0.35s;
+  }
+  .row:active {
+    background: color-mix(in srgb, var(--card), var(--label) 8%);
+    transition: none;
+  }
+  .icon {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    background: linear-gradient(145deg, color-mix(in oklab, var(--c) 55%, white), var(--c));
+    box-shadow: 0 3px 8px -3px color-mix(in oklab, var(--c) 80%, transparent), inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
+  }
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .title {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .meta {
+    font-size: 13px;
+    color: var(--label2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .meta em {
+    font-style: normal;
+    color: var(--c2);
+  }
+  .right {
+    display: grid;
+    justify-items: end;
+    gap: 3px;
+  }
+  .amt {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .amt.income {
+    color: var(--green);
+  }
+  .time {
+    font-size: 12px;
+    color: var(--label3);
+  }
+  .empty {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: 60px 30px;
+    text-align: center;
+  }
+  .empty .em {
+    font-size: 54px;
+  }
+  .empty p {
+    margin: 6px 0 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .empty small {
+    font-size: 14px;
+    color: var(--label2);
+  }
+  .tail {
+    height: calc(env(safe-area-inset-bottom) + 100px);
+  }
+</style>

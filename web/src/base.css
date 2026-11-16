@@ -1,0 +1,62 @@
+/* 全局：重置、手机外框（桌面预览时）、主题共用的变量默认值。各主题在 themes/<id>/tokens.css 覆盖。 */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+body {
+  background: var(--bg);
+  color: var(--label);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.3;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* 桌面上按 iPhone 尺寸居中预览；transform 让里面的 fixed 以外框为准。 */
+@media (min-width: 700px) and (hover: hover) {
+  body {
+    background: radial-gradient(circle at 30% 20%, #3a3f58, #14151c 70%);
+  }
+  #app {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: 393px;
+    height: 852px;
+    translate: -50% -50%;
+    transform: translateZ(0);
+    border-radius: 54px;
+    box-shadow:
+      0 0 0 11px #1b1b1f,
+      0 0 0 13px #3a3a40,
+      0 40px 100px rgba(0, 0, 0, 0.6);
+  }
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.45s;
+}

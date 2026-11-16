@@ -4,3 +4,5 @@
 /samples/
 /shortcuts/*.shortcut
 /token.txt
+/web/node_modules
+/web/dist

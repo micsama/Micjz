@@ -1,0 +1,9 @@
+{
+  "name": "micjz 记账",
+  "short_name": "记账",
+  "display": "standalone",
+  "start_url": "./",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F2F2F7",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

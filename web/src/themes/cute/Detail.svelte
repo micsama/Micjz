@@ -1,0 +1,313 @@
+<script lang="ts">
+  import ActionSheet from "../../ui/ActionSheet.svelte";
+  import ImageViewer from "../../ui/ImageViewer.svelte";
+  import { back, categoryIndex, edit, remove } from "../../lib/store.svelte";
+  import { changes, FIELDS } from "../../lib/fields";
+  import { dateTime, leaf, money } from "../../lib/format";
+  import { color, emoji } from "../../lib/look";
+  import type { Entry } from "../../lib/types";
+
+  let { entry }: { entry: Entry } = $props();
+
+  let confirm = $state(false);
+  let viewing = $state(false);
+
+  const c = $derived(color(categoryIndex(entry)));
+  const diff = $derived(changes(entry));
+  const tiles = FIELDS.filter((f) => f.key !== "amount_cents");
+</script>
+
+<div class="page" style:--c={c}>
+  <header class="top">
+    <button class="back" onclick={back} aria-label="返回">‹</button>
+  </header>
+
+  <div class="wrap">
+  <span class="bubble">{emoji(entry)}</span>
+  <section class="ticket">
+    <h1>{entry.merchant ?? leaf(entry)}</h1>
+    <p class="when num">{dateTime(entry.occurred_at)}</p>
+    <div class="dash"></div>
+    <button class="amount num" class:income={entry.kind === "income"} onclick={() => edit(entry.id, "amount_cents")}>
+      {entry.kind === "income" ? "+" : "-"}{money(entry.amount_cents)}
+    </button>
+    <small>点金额可以改哦</small>
+  </section>
+  </div>
+
+  <section class="tiles">
+    {#each tiles as f (f.key)}
+      <button class="tile" class:wide={f.key === "note" || f.key === "category"} onclick={() => edit(entry.id, f.key)}>
+        <span class="te">{f.emoji}</span>
+        <span class="tl">{f.label}</span>
+        <span class="tv" class:empty={!f.show(entry)}>{f.show(entry) || "还没填～"}</span>
+      </button>
+    {/each}
+  </section>
+
+  <h3 class="cap">📸 截图</h3>
+  <section class="notes">
+    <button class="polaroid" onclick={() => (viewing = true)}>
+      <img src={entry.image} alt="支付截图" />
+      <span>原图</span>
+    </button>
+    {#if diff.length}
+      <div class="sticky">
+        <b>你帮 AI 改了 {diff.length} 处</b>
+        {#each diff as d (d.def.key)}
+          <p>{d.def.emoji} <s>{d.from}</s> → {d.to}</p>
+        {/each}
+      </div>
+    {/if}
+  </section>
+
+  <button class="del" onclick={() => (confirm = true)}>不要这笔了 🗑️</button>
+  <div class="tail"></div>
+</div>
+
+<ActionSheet open={confirm} title="删掉之后几秒内还能撤销" actions={[{ label: "删掉它", danger: true, run: () => remove(entry.id) }]} oncancel={() => (confirm = false)} />
+{#if viewing}<ImageViewer src={entry.image} onclose={() => (viewing = false)} />{/if}
+
+<style>
+  .page {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-top: calc(env(safe-area-inset-top) + 6px);
+    background:
+      radial-gradient(70% 30% at 50% 0%, color-mix(in srgb, var(--c) 35%, transparent), transparent),
+      var(--bg);
+  }
+  .top {
+    padding: 4px 16px;
+  }
+  .back {
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--card);
+    color: var(--tint);
+    font: inherit;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    padding-bottom: 4px;
+    box-shadow: 0 6px 14px -6px rgba(255, 111, 156, 0.5);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .back:active {
+    transform: scale(0.85);
+  }
+
+  .wrap {
+    position: relative;
+    margin: 30px 20px 0;
+  }
+  .ticket {
+    display: grid;
+    justify-items: center;
+    padding: 44px 20px 20px;
+    border-radius: 26px;
+    background: var(--card);
+    text-align: center;
+    box-shadow: 0 16px 34px -18px rgba(255, 111, 156, 0.55);
+    /* 两侧打孔 */
+    -webkit-mask: radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
+      radial-gradient(circle 12px at 100% 62%, transparent 11px, #000 12px) right / 51% 100% no-repeat;
+    mask: radial-gradient(circle 12px at 0 62%, transparent 11px, #000 12px) left / 51% 100% no-repeat,
+      radial-gradient(circle 12px at 100% 62%, transparent 11px, #000 12px) right / 51% 100% no-repeat;
+  }
+  .bubble {
+    position: absolute;
+    top: -30px;
+    left: calc(50% - 32px);
+    z-index: 1;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 34px;
+    background: color-mix(in srgb, var(--c) 30%, var(--card));
+    border: 4px solid var(--card);
+    animation: wiggle 3s ease-in-out infinite;
+  }
+  @keyframes wiggle {
+    50% {
+      transform: rotate(-8deg) translateY(-3px);
+    }
+  }
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+  }
+  .when {
+    margin: 4px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--label2);
+  }
+  .dash {
+    align-self: stretch;
+    margin: 16px 6px 12px;
+    border-top: 2px dashed var(--sep);
+  }
+  .amount {
+    border: 0;
+    background: none;
+    color: var(--label);
+    font: inherit;
+    font-size: 42px;
+    font-weight: 800;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .amount:active {
+    transform: scale(0.92);
+  }
+  .amount.income {
+    color: var(--green);
+  }
+  .ticket small {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--label3);
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 16px 16px 0;
+  }
+  .tile {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    row-gap: 2px;
+    align-items: center;
+    padding: 12px 14px;
+    border: 0;
+    border-radius: 20px;
+    background: var(--card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    box-shadow: 0 6px 16px -12px rgba(255, 111, 156, 0.5);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .tile:active {
+    transform: scale(0.94) rotate(-1deg);
+  }
+  .tile.wide {
+    grid-column: span 2;
+  }
+  .te {
+    grid-row: span 2;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    background: var(--fill);
+  }
+  .tl {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--label2);
+  }
+  .tv {
+    font-size: 15px;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tv.empty {
+    color: var(--label3);
+    font-weight: 600;
+  }
+
+  .cap {
+    margin: 26px 22px 10px;
+    font-size: 15px;
+    font-weight: 800;
+  }
+  .notes {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    margin: 0 16px;
+  }
+  .polaroid {
+    flex: none;
+    display: grid;
+    gap: 4px;
+    padding: 6px 6px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: #fff;
+    color: #8a7a80;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    rotate: -4deg;
+    box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.35);
+    transition: rotate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), scale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .polaroid:active {
+    rotate: 0deg;
+    scale: 1.05;
+  }
+  .polaroid img {
+    width: 84px;
+    height: 150px;
+    object-fit: cover;
+  }
+  .sticky {
+    flex: 1;
+    min-width: 0;
+    padding: 14px 14px 16px;
+    background: #fff4b8;
+    color: #5f5330;
+    border-radius: 4px 4px 18px 4px;
+    rotate: 1.5deg;
+    box-shadow: 0 10px 20px -12px rgba(160, 130, 0, 0.5);
+    font-size: 13px;
+  }
+  .sticky b {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+  .sticky p {
+    margin: 4px 0 0;
+    font-weight: 600;
+    word-break: break-all;
+  }
+  .sticky s {
+    opacity: 0.55;
+  }
+  .del {
+    display: block;
+    margin: 30px auto 0;
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--red) 12%, transparent);
+    color: var(--red);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 800;
+  }
+  .del:active {
+    transform: scale(0.92);
+  }
+  .tail {
+    height: calc(env(safe-area-inset-bottom) + 40px);
+  }
+</style>

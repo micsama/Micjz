@@ -1,0 +1,66 @@
+/* 晶彩：iOS 的结构和手感，配色更鲜亮——渐变卡片、彩色图标。 */
+[data-theme="glow"] {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  --motion: smooth;
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --sheet-bg: #f2f2f7;
+  --label: #000000;
+  --label2: rgba(60, 60, 67, 0.62);
+  --label3: rgba(60, 60, 67, 0.32);
+  --sep: rgba(60, 60, 67, 0.22);
+  --fill: rgba(120, 120, 128, 0.14);
+  --press: rgba(0, 0, 0, 0.08);
+  --tint: #007aff;
+  --red: #ff3b30;
+  --green: #22b14c;
+  --scrim: rgba(0, 0, 0, 0.32);
+  --grabber: rgba(60, 60, 67, 0.3);
+  --bar-bg: rgba(249, 249, 251, 0.78);
+  --alert-bg: rgba(250, 250, 252, 0.9);
+  --toast-bg: rgba(30, 30, 32, 0.88);
+  --toast-fg: #fff;
+  --toast-btn: rgba(255, 255, 255, 0.16);
+  --radius-group: 14px;
+  --radius-sheet: 14px;
+  --radius-alert: 14px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --c0: #ff8a00;
+  --c1: #0a84ff;
+  --c2: #ff2d78;
+  --c3: #30b0c7;
+  --c4: #af52de;
+  --c5: #34c759;
+  --c6: #ff453a;
+  --c7: #8e8e93;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="glow"] {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --sheet-bg: #1c1c1e;
+    --label: #ffffff;
+    --label2: rgba(235, 235, 245, 0.62);
+    --label3: rgba(235, 235, 245, 0.3);
+    --sep: rgba(84, 84, 88, 0.65);
+    --fill: rgba(118, 118, 128, 0.24);
+    --press: rgba(255, 255, 255, 0.1);
+    --tint: #0a84ff;
+    --red: #ff453a;
+    --green: #30d158;
+    --scrim: rgba(0, 0, 0, 0.5);
+    --grabber: rgba(235, 235, 245, 0.3);
+    --bar-bg: rgba(22, 22, 24, 0.78);
+    --alert-bg: rgba(44, 44, 46, 0.9);
+    --toast-bg: rgba(60, 60, 64, 0.92);
+  }
+  [data-theme="glow"] .sheet .opts,
+  [data-theme="glow"] .sheet .field {
+    background: #2c2c2e;
+  }
+}
+
+[data-theme] {
+  font-family: var(--font);
+  color: var(--label);
+}

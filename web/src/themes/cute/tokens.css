@@ -1,0 +1,48 @@
+/* 软糖：圆体字、奶油底、粉色主调、大圆角和弹性动效。 */
+[data-theme="cute"] {
+  --font: ui-rounded, "SF Pro Rounded", -apple-system, "PingFang SC", sans-serif;
+  --motion: bouncy;
+  --bg: #fff6ef;
+  --card: #ffffff;
+  --sheet-bg: #fff6ef;
+  --label: #4a3a3f;
+  --label2: rgba(74, 58, 63, 0.6);
+  --label3: rgba(74, 58, 63, 0.3);
+  --sep: rgba(255, 143, 177, 0.22);
+  --fill: rgba(255, 143, 177, 0.16);
+  --press: rgba(255, 143, 177, 0.14);
+  --tint: #ff6f9c;
+  --red: #ff5c7a;
+  --green: #3cc59a;
+  --scrim: rgba(74, 40, 52, 0.28);
+  --grabber: rgba(255, 111, 156, 0.4);
+  --alert-bg: rgba(255, 250, 247, 0.94);
+  --toast-bg: #4a3a3f;
+  --toast-fg: #fff;
+  --toast-btn: #ff6f9c;
+  --toast-offset: 110px;
+  --radius-group: 22px;
+  --radius-sheet: 30px;
+  --radius-alert: 24px;
+  --c0: #ffb26b;
+  --c1: #7cc4ff;
+  --c2: #ff8fb1;
+  --c3: #6fdcc8;
+  --c4: #c6a3ff;
+  --c5: #9be37a;
+  --c6: #ff9a8a;
+  --c7: #c9b8b0;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="cute"] {
+    --bg: #2a2025;
+    --card: #3a2d33;
+    --sheet-bg: #2a2025;
+    --label: #ffeef3;
+    --label2: rgba(255, 238, 243, 0.62);
+    --label3: rgba(255, 238, 243, 0.3);
+    --alert-bg: rgba(58, 45, 51, 0.95);
+    --toast-bg: #ffeef3;
+    --toast-fg: #4a3a3f;
+  }
+}
