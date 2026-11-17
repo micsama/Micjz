@@ -67,7 +67,9 @@ def convert(conn, steps):
         for version, path in steps:
             print(f"转换 v{version - 1} → v{version}（{path.name}）", flush=True)
             for sql in statements(path):
-                conn.execute(sql)
+                # 脚本里的 SELECT 是给人看的统计，原样打印。
+                for row in conn.execute(sql):
+                    print("  " + " ".join(map(str, row)), flush=True)
             conn.execute(f"PRAGMA user_version = {version}")
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         if violations:

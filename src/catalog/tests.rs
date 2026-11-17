@@ -24,16 +24,33 @@ fn run(conn: &mut Connection, cmd: &str) -> anyhow::Result<String> {
     cli(conn, &args)
 }
 
+/// 断言用：模型 key 对到的分类路径。
+fn key_path(cat: &Catalog, kind: Kind, key: &str) -> Option<String> {
+    cat.by_key(kind, key)
+        .and_then(|id| cat.category_path(kind, id))
+}
+
+fn default_account(cat: &Catalog) -> &str {
+    &cat.account(cat.default_account()).unwrap().name
+}
+
 #[test]
 fn seed_data() {
     let cat = load(&db()).unwrap();
-    assert_eq!(cat.fallback(Kind::Expense), "✨ 其他");
-    assert_eq!(cat.fallback(Kind::Income), "✨ 其他");
-    assert_eq!(cat.account_names().collect::<Vec<_>>(), ["微信", "银行卡"]);
-    assert_eq!(cat.default_account(), "微信");
+    for kind in [Kind::Expense, Kind::Income] {
+        assert_eq!(
+            cat.category_path(kind, cat.fallback(kind)).unwrap(),
+            "✨ 其他"
+        );
+    }
     assert_eq!(
-        cat.by_key(Kind::Expense, "coffee"),
-        Some(("🍜 餐饮", Some("☕️ 咖啡饮品")))
+        cat.accounts.iter().map(|a| &a.name).collect::<Vec<_>>(),
+        ["微信", "银行卡"]
+    );
+    assert_eq!(default_account(&cat), "微信");
+    assert_eq!(
+        key_path(&cat, Kind::Expense, "coffee").as_deref(),
+        Some("🍜 餐饮/☕️ 咖啡饮品")
     );
     assert_eq!(
         cat.by_key(Kind::Expense, "food"),
@@ -62,8 +79,8 @@ fn add_rename_remove() {
     run(&mut conn, "category rename 支出 学习/书籍 图书").unwrap();
     let cat = load(&conn).unwrap();
     assert_eq!(
-        cat.by_key(Kind::Expense, "books"),
-        Some(("学习", Some("图书")))
+        key_path(&cat, Kind::Expense, "books").as_deref(),
+        Some("学习/图书")
     );
 
     assert!(run(&mut conn, "category rm 支出 学习").is_err(), "先删二级");
@@ -71,8 +88,10 @@ fn add_rename_remove() {
     run(&mut conn, "category rm 支出 学习").unwrap();
     assert!(run(&mut conn, "category rm 支出 '✨ 其他'").is_err());
     run(&mut conn, "category rename 收入 '✨ 其他' 杂项").unwrap();
+    let cat = load(&conn).unwrap();
     assert_eq!(
-        load(&conn).unwrap().fallback(Kind::Income),
+        cat.category_path(Kind::Income, cat.fallback(Kind::Income))
+            .unwrap(),
         "杂项",
         "兜底按 key 认，可以改名"
     );
@@ -84,7 +103,7 @@ fn add_rename_remove() {
     assert!(run(&mut conn, "account add 某卡 储蓄卡 12ab").is_err());
     run(&mut conn, "account move 招商银行 1").unwrap();
     let cat = load(&conn).unwrap();
-    assert_eq!(cat.default_account(), "招商银行", "第一位是默认账户");
+    assert_eq!(default_account(&cat), "招商银行", "第一位是默认账户");
     assert_eq!(
         cat.account_lines(),
         "招商银行（信用卡 尾号 1234）\n微信\n银行卡\n现金",
@@ -108,13 +127,14 @@ fn add_rename_remove() {
     let cat = load(&conn).unwrap();
     let first = &cat.categories(Kind::Expense)[0];
     assert_eq!(first.name, "✨ 其他");
-    assert_eq!(
-        cat.category(Kind::Expense, "🍜 餐饮").unwrap().subs[0].1,
-        "🍲 聚餐"
-    );
+    let food = cat
+        .categories(Kind::Expense)
+        .iter()
+        .find(|c| c.name == "🍜 餐饮");
+    assert_eq!(food.unwrap().subs[0].name, "🍲 聚餐");
     assert!(run(&mut conn, "category move 支出 '✨ 其他' 0").is_err());
     run(&mut conn, "tag rename 恋爱 约会").unwrap();
-    assert_eq!(load(&conn).unwrap().tags, ["约会"]);
+    assert_eq!(load(&conn).unwrap().tags[0].name, "约会");
     assert!(run(&mut conn, "nope").is_err());
 }
 

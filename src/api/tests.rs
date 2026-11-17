@@ -276,6 +276,7 @@ async fn errors_are_json_done() {
     let stranger = serde_json::to_value(crate::flow::menu(
         &crate::flow::Draft::blank(crate::flow::now(), &crate::catalog::defaults()),
         crate::flow::now(),
+        &crate::catalog::defaults(),
     ))
     .unwrap();
     let (status, v) = s.step(&stranger, "✅ 确认记账").await;
@@ -329,7 +330,7 @@ impl Server {
     }
 }
 fn expense(catalog: &Value) -> Value {
-    json!({"kind":"expense","amount_cents":3250,"category_id":catalog["categories"].as_array().unwrap().iter().find(|c|c["kind"]=="expense").unwrap()["id"],"account_id":catalog["accounts"][0]["id"],"to_account_id":null,"merchant":"  商家  ","occurred_at":"2026-11-17T12:30:00.123+08:00","note":" 午饭 ","tag_ids":[catalog["tags"][0]["id"],catalog["tags"][0]["id"]]})
+    json!({"id":uuid::Uuid::now_v7().to_string(),"kind":"expense","amount_cents":3250,"category_id":catalog["categories"].as_array().unwrap().iter().find(|c|c["kind"]=="expense").unwrap()["id"],"account_id":catalog["accounts"][0]["id"],"to_account_id":null,"merchant":"  商家  ","occurred_at":"2026-11-17T12:30:00.123+08:00","note":" 午饭 ","tag_ids":[catalog["tags"][0]["id"],catalog["tags"][0]["id"]]})
 }
 
 #[tokio::test]
@@ -493,6 +494,24 @@ async fn web_entries_validation_patch_and_balances() {
     let input = expense(&c);
     let (status, e) = s.web(POST, "entries", input.clone()).await;
     assert_eq!(status, 201, "{e}");
+    assert_eq!(e["id"], input["id"], "id 用网页给的");
+    let mut retry = input.clone();
+    retry["amount_cents"] = json!(1);
+    let (status, again) = s.web(POST, "entries", retry).await;
+    assert_eq!(
+        (status, &again),
+        (200, &e),
+        "同一 id 重试返回原来那笔，不比较内容"
+    );
+    for bad in [
+        json!("nope"),
+        json!("550e8400-e29b-41d4-a716-446655440000"),
+        Value::Null,
+    ] {
+        let mut v = input.clone();
+        v["id"] = bad;
+        assert_eq!(s.web(POST, "entries", v).await.0, 400);
+    }
     assert_eq!(e["merchant"], "商家");
     assert_eq!(e["note"], "午饭");
     assert_eq!(e["occurred_at"], "2026-11-17T04:30:00Z");
@@ -537,6 +556,7 @@ async fn web_entries_validation_patch_and_balances() {
         200
     );
     let mut transfer = input.clone();
+    transfer["id"] = json!(uuid::Uuid::now_v7().to_string());
     transfer["kind"] = json!("transfer");
     transfer["category_id"] = Value::Null;
     transfer["to_account_id"] = c["accounts"][0]["id"].clone();
@@ -676,6 +696,17 @@ async fn web_accounts_adjust_settings() {
         .await;
     assert_eq!(status, 200);
     assert_eq!(settings["cycle_day"], 25);
+    for (day, status) in [
+        (-25, 200),
+        (-2, 200),
+        (-1, 400),
+        (0, 400),
+        (29, 400),
+        (-29, 400),
+    ] {
+        let v = json!({"cycle_day":day,"budget_cents":null});
+        assert_eq!(s.web(PUT, "settings", v).await.0, status, "{day}");
+    }
     assert!(settings["budget_cents"].is_null());
     assert_eq!(settings["entry_count"], 0);
 }
@@ -748,7 +779,10 @@ async fn web_recognition_export_and_shortcut_share_entries() {
     )
     .unwrap();
     let (_, r) = s.send(s.api(GET, &format!("recognitions/{rid}"))).await;
-    assert!(r["first"]["account_id"].is_null());
+    assert_eq!(
+        r["first"]["account_id"], entry["account_id"],
+        "留存认 id，账户改名不影响"
+    );
     assert_eq!(s.send(s.api(GET, "recognitions/missing")).await.0, 404);
     assert_eq!(
         s.send(s.api(GET, "recognitions/missing/image")).await.0,

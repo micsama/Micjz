@@ -165,7 +165,7 @@
 ```
 
 - `outcome`：`ok | rejected | error`；`reason` 是不像支付页或识别失败的原因，没有为 `null`。
-- `origin` 里存的是名称，服务器按**当前**目录换成 id：一级名加二级名对应 `category_id`（只有一级就是一级的 id），账户名对应 `account_id`，标签名对应 `tag_ids`。已经改名或删掉的换不到，给 `null`（标签就跳过）。
+- `origin` 存的就是 id（v7 起，见 [表结构 v7](schema-7.md)），原样返回，分类、账户改名不影响。v7 之前的记录在升级时按当时的名字换成 id，对不上的 `category_id`、`account_id` 为 `null`（网页显示「当时的已不在」），标签直接去掉。
 - `amount_cents` 没识别出来为 `null`。
 - 不存在 404。
 
@@ -245,6 +245,7 @@ CREATE TABLE web_admin (
 
 ```json
 {
+  "id": "0193…",
   "kind": "expense", "amount_cents": 3250, "category_id": 12,
   "account_id": 1, "to_account_id": null,
   "merchant": null, "occurred_at": "2026-11-17T04:30:00.000Z", "note": "午饭",
@@ -254,9 +255,9 @@ CREATE TABLE web_admin (
 
 - `kind` 只能是 `expense | income | transfer`；平账走 §5.5，这里给 `adjust` → 400。
 - 所有字段都要写出来（可空的写 `null`）。
-- 服务器生成 `id`（UUIDv7）和 `created_at`，`recognition_id` 为 `null`。
-- 成功 201，返回完整账目（形状同 §3.2 的一项）。
-- **不做幂等**：前端不自动重试；响应丢了、用户手动再提交可能多记一笔，能在列表里看到并删掉。
+- `id` 必填，UUIDv7 文本，由网页在打开记账面板、点「再记一笔」时生成，保存失败重试沿用；格式不对 400。服务器生成 `created_at`，`recognition_id` 为 `null`。
+- 新建成功 201，返回完整账目（形状同 §3.2 的一项）。
+- **按 `id` 防重**：这个 `id` 已入账就返回那一笔，状态码 200，不比较内容。网页以返回的那笔为准展示，提示「这笔之前已保存，没有重复记」。
 
 ### 5.3 `PATCH /api/entries/:id`：改
 
@@ -340,7 +341,7 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 
 ### `PUT /api/settings`
 
-请求 `{ "cycle_day": 25, "budget_cents": null }`，两个字段都要写。`cycle_day` 1～28；`budget_cents` 为 `null` 或 > 0（上限同金额）。成功 200，返回同 §3.5 的整个设置。
+请求 `{ "cycle_day": 25, "budget_cents": null }`，两个字段都要写。`cycle_day` 为 1～28（本月 N 号起算本月）或 −28～−2（上月 N 号起算本月），见 [表结构 v7](schema-7.md)；`budget_cents` 为 `null` 或 > 0（上限同金额）。成功 200，返回同 §3.5 的整个设置。
 
 ## 8. 导出
 

@@ -33,7 +33,7 @@ fn confirm_links_recognition_and_saves_once() {
     let now = tz().with_ymd_and_hms(2026, 11, 16, 13, 42, 0).unwrap();
     let mut d = Draft::blank(now, &db.catalog().unwrap());
     d.amount_cents = Some(3250);
-    d.tags = vec!["恋爱".to_owned()];
+    d.tag_ids = vec![db.catalog().unwrap().tags[0].id];
     let image = Image {
         sha256: "abc",
         bytes: 10,

@@ -299,16 +299,20 @@ export function toggleBalance() {
 
 // ── 账目的写 ──
 
-/** 手记一笔，成功返回真。记完跳到它所在的周期。 */
-export async function addEntry(fields: EntryInput): Promise<boolean> {
-  const e = await guard(api.addEntry(fields));
-  if (!e) return false;
+/**
+ * 手记一笔，记上了返回 "new"；这个 `id` 之前已记上（上次响应丢了）返回 "existed"，以服务器那笔为准；失败为空。
+ * 记完跳到它所在的周期。
+ */
+export async function addEntry(id: string, fields: EntryInput): Promise<"new" | "existed" | null> {
+  const r = await guard(api.addEntry(id, fields));
+  if (!r) return null;
+  const e = r.entry;
   place(e);
   void refreshTotals();
   app.tab = "list";
   app.stack = [];
   app.period = periodOf(e.occurred_at, settings.cycle_day);
-  return true;
+  return r.existed ? "existed" : "new";
 }
 
 /**

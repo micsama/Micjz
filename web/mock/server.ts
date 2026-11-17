@@ -71,8 +71,8 @@ export function createMock(): (req: Request) => Promise<Response | null> {
   const newest = (a: Entry, b: Entry) => b.occurred_at.localeCompare(a.occurred_at) || b.id.localeCompare(a.id);
   const newId = () => `01${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-  function insert(fields: Omit<Entry, "id" | "recognition_id" | "created_at">): Entry {
-    const e: Entry = { ...fields, id: newId(), recognition_id: null, created_at: stamp(new Date()) };
+  function insert(fields: Omit<Entry, "id" | "recognition_id" | "created_at">, id = newId()): Entry {
+    const e: Entry = { ...fields, id, recognition_id: null, created_at: stamp(new Date()) };
     check(e);
     entries.push(e);
     entries.sort(newest);
@@ -121,7 +121,7 @@ export function createMock(): (req: Request) => Promise<Response | null> {
       case "PUT settings": {
         const day = b.cycle_day as number;
         const budget = b.budget_cents as number | null;
-        if (!Number.isInteger(day) || day < 1 || day > 28) throw new Fail(400, "记账周期是 1～28 号");
+        if (!Number.isInteger(day) || day === 0 || day === -1 || Math.abs(day) > 28) throw new Fail(400, "记账周期是 1～28 或 -28～-2");
         if (budget !== null && !(Number.isSafeInteger(budget) && budget > 0 && budget <= MAX)) throw new Fail(400, "预算要大于 0");
         Object.assign(settings, { cycle_day: day, budget_cents: budget });
         return json(200, fullSettings());
@@ -138,18 +138,25 @@ export function createMock(): (req: Request) => Promise<Response | null> {
         return new Response(s.image, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "private, max-age=31536000, immutable" } });
       }
       case "POST entries": {
+        const id = b.id as string;
+        if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) throw new Fail(400, "id 须为 UUIDv7");
+        const existing = entries.find((e) => e.id === id);
+        if (existing) return json(200, existing);
         if (!["expense", "income", "transfer"].includes(b.kind as string)) throw new Fail(400, "类型只能是支出、收入、转账");
-        const e = insert({
-          kind: b.kind as Kind,
-          amount_cents: b.amount_cents as number,
-          category_id: b.category_id as number | null,
-          account_id: b.account_id as number,
-          to_account_id: b.to_account_id as number | null,
-          merchant: text(b.merchant),
-          occurred_at: time(b.occurred_at),
-          note: text(b.note),
-          tag_ids: (b.tag_ids as number[]) ?? [],
-        });
+        const e = insert(
+          {
+            kind: b.kind as Kind,
+            amount_cents: b.amount_cents as number,
+            category_id: b.category_id as number | null,
+            account_id: b.account_id as number,
+            to_account_id: b.to_account_id as number | null,
+            merchant: text(b.merchant),
+            occurred_at: time(b.occurred_at),
+            note: text(b.note),
+            tag_ids: (b.tag_ids as number[]) ?? [],
+          },
+          id,
+        );
         return json(201, e);
       }
       case "PATCH entries/:id": {

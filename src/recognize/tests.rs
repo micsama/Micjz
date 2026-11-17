@@ -17,6 +17,12 @@ fn draft(json: &str) -> Draft {
     )
 }
 
+fn path(d: &Draft) -> String {
+    catalog::defaults()
+        .category_path(d.kind, d.category_id)
+        .unwrap()
+}
+
 #[test]
 fn full_output() {
     let d = draft(
@@ -24,10 +30,7 @@ fn full_output() {
             "account":"微信","occurred_at":"2026-11-16 12:05","category":"coffee"}"#,
     );
     assert_eq!(d.amount_cents, Some(3250));
-    assert_eq!(
-        (d.category.as_str(), d.subcategory.as_deref()),
-        ("🍜 餐饮", Some("☕️ 咖啡饮品"))
-    );
+    assert_eq!(path(&d), "🍜 餐饮/☕️ 咖啡饮品");
     assert_eq!(d.occurred_at.to_rfc3339(), "2026-11-16T12:05:00+08:00");
     assert_eq!(d.note.as_deref(), Some("生椰拿铁"), "商品名进备注");
 }
@@ -39,8 +42,12 @@ fn invalid_fields_become_empty() {
             "occurred_at":"昨天","category":"nope","item":"  "}"#,
     );
     assert_eq!(d.amount_cents, None, "金额不合规置空，让用户填");
-    assert_eq!((d.category.as_str(), d.subcategory), ("✨ 其他", None));
-    assert_eq!(d.account, "微信", "不在列表里的账户用默认账户");
+    assert_eq!(path(&d), "✨ 其他");
+    assert_eq!(
+        d.account_id,
+        catalog::defaults().default_account(),
+        "不在列表里的账户用默认账户"
+    );
     assert_eq!(d.merchant.as_deref(), Some("123"));
     assert_eq!(d.occurred_at, now());
     assert_eq!(d.note, None);
@@ -56,9 +63,9 @@ fn recent_time_uses_now() {
 #[test]
 fn income_key_must_match_kind() {
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"refund"}"#);
-    assert_eq!((d.kind, d.category.as_str()), (Kind::Income, "↩️ 退款"));
+    assert_eq!((d.kind, path(&d).as_str()), (Kind::Income, "↩️ 退款"));
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"coffee"}"#);
-    assert_eq!(d.category, "✨ 其他", "支出 key 不能用在收入上");
+    assert_eq!(path(&d), "✨ 其他", "支出 key 不能用在收入上");
 }
 
 #[test]

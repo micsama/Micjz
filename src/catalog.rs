@@ -25,7 +25,12 @@ pub struct Catalog {
     income: Vec<Category>,
     /// 按优先级排序，至少一个。
     pub accounts: Vec<Account>,
-    pub tags: Vec<String>,
+    pub tags: Vec<Tag>,
+}
+
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -61,20 +66,16 @@ impl CardType {
 
 /// 每个分类都有模型 key；只有叶子（没有二级的一级、二级）的 key 会给模型。
 pub struct Category {
+    pub id: i64,
     pub name: String,
     pub key: String,
-    /// `(key, 名称)`
-    pub subs: Vec<(String, String)>,
+    pub subs: Vec<Sub>,
 }
 
-impl Category {
-    pub fn sub_names(&self) -> impl Iterator<Item = &str> {
-        self.subs.iter().map(|(_, name)| name.as_str())
-    }
-
-    pub fn has_sub(&self, name: &str) -> bool {
-        self.sub_names().any(|s| s == name)
-    }
+pub struct Sub {
+    pub id: i64,
+    pub name: String,
+    pub key: String,
 }
 
 impl Catalog {
@@ -85,45 +86,60 @@ impl Catalog {
         }
     }
 
-    pub fn category(&self, kind: Kind, name: &str) -> Option<&Category> {
-        self.categories(kind).iter().find(|c| c.name == name)
-    }
-
-    /// 模型给的叶子 key → (一级, 二级)。
-    pub fn by_key(&self, kind: Kind, key: &str) -> Option<(&str, Option<&str>)> {
+    /// 分类 id → (一级, 二级)；`kind` 不符也算没有。
+    pub fn locate(&self, kind: Kind, id: i64) -> Option<(&Category, Option<&Sub>)> {
         self.categories(kind).iter().find_map(|c| {
-            if c.subs.is_empty() && c.key == key {
-                return Some((c.name.as_str(), None));
+            if c.id == id {
+                return Some((c, None));
             }
-            c.subs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, sub)| (c.name.as_str(), Some(sub.as_str())))
+            c.subs.iter().find(|s| s.id == id).map(|s| (c, Some(s)))
         })
     }
 
-    pub fn account_names(&self) -> impl Iterator<Item = &str> {
-        self.accounts.iter().map(|a| a.name.as_str())
+    /// 展示用的分类路径「一级/二级」。
+    pub fn category_path(&self, kind: Kind, id: i64) -> Option<String> {
+        self.locate(kind, id).map(|(c, sub)| match sub {
+            Some(s) => format!("{}/{}", c.name, s.name),
+            None => c.name.clone(),
+        })
     }
 
-    pub fn has_account(&self, name: &str) -> bool {
-        self.account_names().any(|a| a == name)
+    /// 模型给的叶子 key → 分类 id。
+    pub fn by_key(&self, kind: Kind, key: &str) -> Option<i64> {
+        self.categories(kind).iter().find_map(|c| {
+            if c.subs.is_empty() && c.key == key {
+                return Some(c.id);
+            }
+            c.subs.iter().find(|s| s.key == key).map(|s| s.id)
+        })
     }
 
-    /// 兜底分类的名称；`load` 已保证存在。
-    pub fn fallback(&self, kind: Kind) -> &str {
+    pub fn account(&self, id: i64) -> Option<&Account> {
+        self.accounts.iter().find(|a| a.id == id)
+    }
+
+    /// 模型和快捷指令给的是账户名，在入口换成 id。
+    pub fn account_named(&self, name: &str) -> Option<i64> {
+        self.accounts.iter().find(|a| a.name == name).map(|a| a.id)
+    }
+
+    pub fn tag(&self, id: i64) -> Option<&Tag> {
+        self.tags.iter().find(|t| t.id == id)
+    }
+
+    /// 兜底分类的 id；`load` 已保证存在。
+    pub fn fallback(&self, kind: Kind) -> i64 {
         let key = fallback_key(kind);
-        &self
-            .categories(kind)
+        self.categories(kind)
             .iter()
             .find(|c| c.key == key)
             .expect("load 已保证兜底分类存在")
-            .name
+            .id
     }
 
     /// 识别不出账户时的默认值：优先级第一。
-    pub fn default_account(&self) -> &str {
-        &self.accounts[0].name
+    pub fn default_account(&self) -> i64 {
+        self.accounts[0].id
     }
 
     /// 给 prompt 用：每个账户一行，银行卡只带尾号，完整卡号不发给模型。
@@ -160,8 +176,8 @@ impl Catalog {
             if c.subs.is_empty() {
                 lines.push(format!("{}: {}", c.key, c.name));
             }
-            for (k, s) in &c.subs {
-                lines.push(format!("{k}: {}/{s}", c.name));
+            for s in &c.subs {
+                lines.push(format!("{}: {}/{}", s.key, c.name, s.name));
             }
         }
         lines.join("\n")
@@ -188,7 +204,15 @@ pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
         expense: Vec::new(),
         income: Vec::new(),
         accounts,
-        tags: names(conn, "tags")?,
+        tags: conn
+            .prepare("SELECT id, name FROM tags ORDER BY id")?
+            .query_map([], |r| {
+                Ok(Tag {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?,
     };
     // 先读全部一级，再读二级，各自按优先级。
     let mut stmt = conn.prepare(
@@ -205,10 +229,11 @@ pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
             _ => &mut catalog.expense,
         };
         match parent.and_then(|p| parents.get(&p)) {
-            Some(&i) => list[i].subs.push((key, name)),
+            Some(&i) => list[i].subs.push(Sub { id, name, key }),
             None => {
                 parents.insert(id, list.len());
                 list.push(Category {
+                    id,
                     name,
                     key,
                     subs: Vec::new(),

@@ -261,11 +261,10 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
     };
     let amount_cents = out.amount.as_deref().and_then(flow::parse_cents);
     check("amount", &out.amount, amount_cents.is_some());
-    let category = out.category.as_deref().and_then(|k| cat.by_key(kind, k));
-    check("category", &out.category, category.is_some());
-    let (category, subcategory) = category.unwrap_or((cat.fallback(kind), None));
-    let account = out.account.clone().filter(|a| cat.has_account(a));
-    check("account", &out.account, account.is_some());
+    let category_id = out.category.as_deref().and_then(|k| cat.by_key(kind, k));
+    check("category", &out.category, category_id.is_some());
+    let account_id = out.account.as_deref().and_then(|a| cat.account_named(a));
+    check("account", &out.account, account_id.is_some());
     // 时间与识别时刻相差不到 30 分钟就用识别时刻：截图只到分钟，当前时间更准。
     let parsed_at = out.occurred_at.as_deref().and_then(parse_local_time);
     check("occurred_at", &out.occurred_at, parsed_at.is_some());
@@ -279,9 +278,8 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
     Draft {
         kind,
         amount_cents,
-        category: category.to_owned(),
-        subcategory: subcategory.map(str::to_owned),
-        account: account.unwrap_or_else(|| cat.default_account().to_owned()),
+        category_id: category_id.unwrap_or_else(|| cat.fallback(kind)),
+        account_id: account_id.unwrap_or_else(|| cat.default_account()),
         merchant: out.merchant,
         occurred_at,
         note: out.item,
@@ -291,13 +289,11 @@ fn build_draft(out: Output, now: DateTime<FixedOffset>, cat: &Catalog) -> Draft 
 
 fn mock_draft(now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
     // 按 key 取，分类改名不影响；库里删了就落到「其他」。
-    let (category, subcategory) = cat
-        .by_key(Kind::Expense, "coffee")
-        .unwrap_or((cat.fallback(Kind::Expense), None));
     Draft {
         amount_cents: Some(3250),
-        category: category.to_owned(),
-        subcategory: subcategory.map(str::to_owned),
+        category_id: cat
+            .by_key(Kind::Expense, "coffee")
+            .unwrap_or_else(|| cat.fallback(Kind::Expense)),
         merchant: Some("瑞幸咖啡".to_owned()),
         note: Some("生椰拿铁".to_owned()),
         ..Draft::blank(now, cat)

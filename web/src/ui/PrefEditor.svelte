@@ -3,13 +3,15 @@
   import { onMount, tick } from "svelte";
   import SheetHead from "./SheetHead.svelte";
   import { settings, saveSettings } from "../lib/store.svelte";
-  import { parseCents, yuanInput } from "../lib/format";
+  import { cycleText, parseCents, yuanInput } from "../lib/format";
 
   let { which, onclose }: { which: "cycle" | "budget"; onclose: () => void } = $props();
 
   let text = $state(settings.budget_cents === null ? "" : yuanInput(settings.budget_cents));
   let error = $state("");
   let input = $state<HTMLInputElement>();
+  /** 周期分两组：本月 N 号起（正数）、上月 N 号起（负数，没有 1 号）。 */
+  let lastMonth = $state(settings.cycle_day < 0);
 
   onMount(async () => {
     if (which !== "budget") return;
@@ -44,19 +46,28 @@
 <div class="body">
   {#if which === "cycle"}
     <p class="hint">每月几号开始算一期。发工资那天开始比较顺手。</p>
+    <div class="seg">
+      <button class:on={!lastMonth} onclick={() => (lastMonth = false)}>本月 N 号起</button>
+      <button class:on={lastMonth} onclick={() => (lastMonth = true)}>上月 N 号起</button>
+    </div>
     <div class="days">
       {#each Array.from({ length: 28 }, (_, i) => i + 1) as d (d)}
+        {@const value = lastMonth ? -d : d}
         <button
           class="num"
-          class:on={settings.cycle_day === d}
+          class:on={settings.cycle_day === value}
+          disabled={value === -1}
           onclick={() => {
-            saveSettings({ cycle_day: d });
+            saveSettings({ cycle_day: value });
             onclose();
           }}>{d}</button
         >
       {/each}
     </div>
-    <p class="hint">{settings.cycle_day === 1 ? "现在按自然月统计" : `现在每月 ${settings.cycle_day} 号到下月 ${settings.cycle_day - 1} 号算一期`}</p>
+    <p class="hint">
+      {lastMonth ? "如选 25：10 月 25 日到 11 月 24 日算「11 月」" : "如选 5：11 月 5 日到 12 月 4 日算「11 月」"}<br />
+      现在是{cycleText(settings.cycle_day)}。改了之后历史周期都按新规则重算，账目不动。
+    </p>
   {:else}
     <label class="amount" class:bad={error}>
       <span class="cur">¥</span>
@@ -101,6 +112,32 @@
     font-size: 16px;
     font-weight: 500;
     transition: transform 0.2s;
+  }
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    margin-bottom: 12px;
+    padding: 2px;
+    border-radius: 9px;
+    background: var(--fill);
+  }
+  .seg button {
+    height: 32px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--label);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .seg button.on {
+    background: var(--card);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    font-weight: 600;
+  }
+  .days button:disabled {
+    opacity: 0.3;
   }
   .days button.on {
     background: var(--tint);

@@ -72,17 +72,16 @@ struct Draft {
     id: String,                  // uuid v7，入账主键
     kind: Kind,                  // expense | income
     amount_cents: Option<i64>,   // 未识别为空，确认前必填，> 0
-    category: String,
-    subcategory: Option<String>,
-    account: Option<String>,
+    category_id: i64,            // 叶子，或还没选二级的一级
+    account_id: i64,
     merchant: Option<String>,
     occurred_at: DateTime,       // +08:00
     note: Option<String>,
-    tags: Vec<String>,
+    tag_ids: Vec<i64>,
 }
 ```
 
-JSON → base64url，快捷指令原样回传；草稿里存名称，入账时换成 id。`/step` 解码后按当前库里的分类、账户、标签校验（分类、账户、标签须在列表内，账户必填，金额若有须 > 0），并要求草稿 ID 在 `recognitions` 里，不合法 400。
+JSON → base64url，快捷指令原样回传；草稿只存 id，名称只在菜单、摘要里显示，`/step` 收到的名称在入口换成 id（v7 起，见 [表结构 v7](schema-7.md)）。`/step` 解码后按当前库校验（分类存在且与 `kind` 一致，账户、标签存在，金额若有须 > 0），并要求草稿 ID 在 `recognitions` 里，不合法 400。
 
 ## 6. 主菜单与步骤
 

@@ -46,21 +46,22 @@ impl Kind {
 }
 
 /// 识别结果与用户修改都落在这里。模型看不出的字段由服务器补默认值，
-/// 补不了的（金额）为空，由用户补。
+/// 补不了的（金额）为空，由用户补。分类、账户、标签只存 id，名字只在展示时取。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Draft {
     pub id: String,
     pub kind: Kind,
     /// 未识别出金额时为空，确认前必须填。
     pub amount_cents: Option<i64>,
-    pub category: String,
-    pub subcategory: Option<String>,
+    /// 叶子，或还没选二级的一级。
+    pub category_id: i64,
     /// 识别不出时是优先级第一的账户。
-    pub account: String,
+    pub account_id: i64,
     pub merchant: Option<String>,
     pub occurred_at: DateTime<FixedOffset>,
     pub note: Option<String>,
-    pub tags: Vec<String>,
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,13 +81,12 @@ impl Draft {
             id: uuid::Uuid::now_v7().to_string(),
             kind: Kind::Expense,
             amount_cents: None,
-            category: cat.fallback(Kind::Expense).to_owned(),
-            subcategory: None,
-            account: cat.default_account().to_owned(),
+            category_id: cat.fallback(Kind::Expense),
+            account_id: cat.default_account(),
             merchant: None,
             occurred_at: now,
             note: None,
-            tags: Vec::new(),
+            tag_ids: Vec::new(),
         }
     }
 
@@ -107,23 +107,33 @@ impl Draft {
         if self.amount_cents.is_some_and(|c| c <= 0) {
             return Err("金额须大于 0");
         }
-        let category = cat
-            .category(self.kind, &self.category)
-            .ok_or("分类不存在")?;
-        if self
-            .subcategory
-            .as_deref()
-            .is_some_and(|s| !category.has_sub(s))
-        {
-            return Err("二级分类不存在");
+        if cat.locate(self.kind, self.category_id).is_none() {
+            return Err("分类不存在");
         }
-        if !cat.has_account(&self.account) {
+        if cat.account(self.account_id).is_none() {
             return Err("账户不存在");
         }
-        if self.tags.iter().any(|t| !cat.tags.contains(t)) {
+        if self.tag_ids.iter().any(|&t| cat.tag(t).is_none()) {
             return Err("标签不存在");
         }
         Ok(())
+    }
+
+    /// 展示用的名字。草稿已按目录校验过，id 都在。
+    fn category_path(&self, cat: &Catalog) -> String {
+        cat.category_path(self.kind, self.category_id)
+            .expect("草稿已校验分类")
+    }
+
+    fn account_name<'a>(&self, cat: &'a Catalog) -> &'a str {
+        &cat.account(self.account_id).expect("草稿已校验账户").name
+    }
+
+    fn tag_names<'a>(&self, cat: &'a Catalog) -> Vec<&'a str> {
+        self.tag_ids
+            .iter()
+            .map(|&t| cat.tag(t).expect("草稿已校验标签").name.as_str())
+            .collect()
     }
 }
 
@@ -164,10 +174,16 @@ impl Reply {
         }
     }
 
-    fn ask(draft: &Draft, now: DateTime<FixedOffset>, step: StepType, field: &str) -> Reply {
+    fn ask(
+        draft: &Draft,
+        now: DateTime<FixedOffset>,
+        cat: &Catalog,
+        step: StepType,
+        field: &str,
+    ) -> Reply {
         Reply {
             step,
-            summary: summary(draft, now),
+            summary: summary(draft, now, cat),
             draft: draft.encode(),
             field: field.to_owned(),
             options: Vec::new(),
@@ -220,19 +236,22 @@ enum Action {
 }
 
 /// 主菜单：每项显示当前值，快捷指令原样回传展示文本。
-fn menu_items(d: &Draft) -> [(Action, String); 9] {
+fn menu_items(d: &Draft, cat: &Catalog) -> [(Action, String); 9] {
     let or_none = |v: &Option<String>| v.clone().unwrap_or_else(|| "无".to_owned());
-    let tags = if d.tags.is_empty() {
+    let tags = if d.tag_ids.is_empty() {
         "无".to_owned()
     } else {
-        d.tags.join(" / ")
+        d.tag_names(cat).join(" / ")
     };
     [
         (Action::Amount, format!("💰 金额 · {}", amount_label(d))),
         (Action::Kind, format!("↔️ 类型 · {}", d.kind.label())),
         // 分类名自带 emoji，这一行只显示分类本身。
-        (Action::Category, category_label(d).replace('/', " / ")),
-        (Action::Account, format!("💳 账户 · {}", d.account)),
+        (Action::Category, d.category_path(cat).replace('/', " / ")),
+        (
+            Action::Account,
+            format!("💳 账户 · {}", d.account_name(cat)),
+        ),
         (
             Action::Merchant,
             format!("🏪 商家 · {}", or_none(&d.merchant)),
@@ -248,15 +267,19 @@ fn menu_items(d: &Draft) -> [(Action, String); 9] {
 }
 
 /// 主菜单不带摘要：选项里已有当前值，缺的显示「请补充」。
-pub fn menu(draft: &Draft, now: DateTime<FixedOffset>) -> Reply {
-    let mut reply = Reply::ask(draft, now, StepType::Choose, "action")
-        .options(menu_items(draft).map(|(_, label)| label));
+pub fn menu(draft: &Draft, now: DateTime<FixedOffset>, cat: &Catalog) -> Reply {
+    let mut reply = Reply::ask(draft, now, cat, StepType::Choose, "action")
+        .options(menu_items(draft, cat).map(|(_, label)| label));
     reply.summary.clear();
     reply
 }
 
-pub fn saved_message(draft: &Draft, amount_cents: i64) -> String {
-    format!("已记账 ¥{} · {}", yuan(amount_cents), category_label(draft))
+pub fn saved_message(draft: &Draft, amount_cents: i64, cat: &Catalog) -> String {
+    format!(
+        "已记账 ¥{} · {}",
+        yuan(amount_cents),
+        draft.category_path(cat)
+    )
 }
 
 pub fn step(
@@ -270,7 +293,8 @@ pub fn step(
         field: field.to_owned(),
         value: value.to_owned(),
     };
-    let ask = |d: &Draft, step, field| Reply::ask(d, now, step, field);
+    let ask = |d: &Draft, step, field| Reply::ask(d, now, cat, step, field);
+    let menu = |d: &Draft| menu(d, now, cat);
     // 数字输入框只收数字，没金额时预填 0。
     let ask_amount = |d: &Draft| {
         ask(d, StepType::Number, "amount")
@@ -279,7 +303,7 @@ pub fn step(
 
     let reply = match field {
         "action" => {
-            let action = menu_items(&draft)
+            let action = menu_items(&draft, cat)
                 .into_iter()
                 .find(|(_, label)| label == value)
                 .map(|(action, _)| action)
@@ -299,86 +323,82 @@ pub fn step(
                     ask(&draft, StepType::Choose, "kind").options(["↘️ 支出", "↗️ 收入"])
                 }
                 Action::Category => ask_category(&draft, now, cat),
-                Action::Account => {
-                    ask(&draft, StepType::Choose, "account").options(cat.account_names())
-                }
+                Action::Account => ask(&draft, StepType::Choose, "account")
+                    .options(cat.accounts.iter().map(|a| &a.name)),
                 Action::Merchant => ask(&draft, StepType::Text, "merchant")
                     .default(draft.merchant.clone().unwrap_or_default()),
                 Action::Time => ask(&draft, StepType::Date, "occurred_at")
                     .default(draft.occurred_at.to_rfc3339()),
-                Action::Tags => ask(&draft, StepType::ChooseMany, "tags").options(&cat.tags),
+                Action::Tags => ask(&draft, StepType::ChooseMany, "tags")
+                    .options(cat.tags.iter().map(|t| &t.name)),
                 Action::Note => ask(&draft, StepType::Text, "note")
                     .default(draft.note.clone().unwrap_or_default()),
             }
         }
         "category" => {
-            let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
-            let name = names
-                .into_iter()
-                .find(|n| *n == value)
+            let category = cat
+                .categories(draft.kind)
+                .iter()
+                .find(|c| c.name == value)
                 .ok_or_else(invalid)?;
-            let category = cat.category(draft.kind, name).ok_or_else(invalid)?;
-            draft.category = category.name.clone();
-            draft.subcategory = None;
+            draft.category_id = category.id;
             if category.subs.is_empty() {
-                menu(&draft, now)
+                menu(&draft)
             } else {
-                ask(&draft, StepType::Choose, "subcategory").options(category.sub_names())
+                ask(&draft, StepType::Choose, "subcategory")
+                    .options(category.subs.iter().map(|s| &s.name))
             }
         }
         "subcategory" => {
-            let category = cat
-                .category(draft.kind, &draft.category)
-                .ok_or_else(invalid)?;
+            let (category, _) = cat
+                .locate(draft.kind, draft.category_id)
+                .expect("草稿已校验分类");
             let sub = category
-                .sub_names()
-                .find(|n| *n == value)
+                .subs
+                .iter()
+                .find(|s| s.name == value)
                 .ok_or_else(invalid)?;
-            draft.subcategory = Some(sub.to_owned());
-            menu(&draft, now)
+            draft.category_id = sub.id;
+            menu(&draft)
         }
         "amount" => match parse_cents(value) {
             Some(cents) => {
                 draft.amount_cents = Some(cents);
-                menu(&draft, now)
+                menu(&draft)
             }
             None => ask_amount(&draft).warn(&format!("金额无效：{value}")),
         },
         "account" => {
-            let account = cat
-                .account_names()
-                .find(|n| *n == value)
-                .ok_or_else(invalid)?;
-            draft.account = account.to_owned();
-            menu(&draft, now)
+            draft.account_id = cat.account_named(value).ok_or_else(invalid)?;
+            menu(&draft)
         }
         "tags" => {
-            draft.tags = value
+            draft.tag_ids = value
                 .lines()
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .map(|t| {
                     cat.tags
                         .iter()
-                        .find(|n| *n == t)
-                        .cloned()
+                        .find(|n| n.name == t)
+                        .map(|n| n.id)
                         .ok_or_else(invalid)
                 })
                 .collect::<Result<_, _>>()?;
-            menu(&draft, now)
+            menu(&draft)
         }
         "merchant" => {
             draft.merchant = non_empty(value);
-            menu(&draft, now)
+            menu(&draft)
         }
         "note" => {
             draft.note = non_empty(value);
-            menu(&draft, now)
+            menu(&draft)
         }
         "occurred_at" => {
             let at = DateTime::parse_from_rfc3339(value.trim()).map_err(|_| invalid())?;
             draft.occurred_at = at.with_timezone(&tz());
-            menu(&draft, now)
+            menu(&draft)
         }
         "kind" => {
             let kind = match value {
@@ -387,11 +407,10 @@ pub fn step(
                 _ => return Err(invalid()),
             };
             if kind == draft.kind {
-                menu(&draft, now)
+                menu(&draft)
             } else {
                 draft.kind = kind;
-                draft.category = cat.fallback(kind).to_owned();
-                draft.subcategory = None;
+                draft.category_id = cat.fallback(kind);
                 ask_category(&draft, now, cat)
             }
         }
@@ -401,13 +420,13 @@ pub fn step(
 }
 
 fn ask_category(draft: &Draft, now: DateTime<FixedOffset>, cat: &Catalog) -> Reply {
-    let names = cat.categories(draft.kind).iter().map(|c| c.name.as_str());
+    let names = cat.categories(draft.kind).iter().map(|c| &c.name);
     // 分类名自带 emoji，原样作为选项。
-    Reply::ask(draft, now, StepType::Choose, "category").options(names)
+    Reply::ask(draft, now, cat, StepType::Choose, "category").options(names)
 }
 
 /// 子步骤的提示语：当前账单的多行摘要。
-fn summary(draft: &Draft, now: DateTime<FixedOffset>) -> String {
+fn summary(draft: &Draft, now: DateTime<FixedOffset>, cat: &Catalog) -> String {
     let dash = |v: &Option<String>| v.clone().unwrap_or_else(|| "—".to_owned());
     let time_fmt = if draft.occurred_at.year() == now.year() {
         "%m-%d %H:%M"
@@ -421,10 +440,10 @@ fn summary(draft: &Draft, now: DateTime<FixedOffset>) -> String {
             amount_label(draft),
             dash(&draft.merchant)
         ),
-        format!("{} · {}", category_label(draft), draft.account),
+        format!("{} · {}", draft.category_path(cat), draft.account_name(cat)),
     ];
     let mut time_line = draft.occurred_at.format(time_fmt).to_string();
-    for tag in &draft.tags {
+    for tag in draft.tag_names(cat) {
         time_line.push_str(&format!("  #{tag}"));
     }
     lines.push(time_line);
@@ -439,13 +458,6 @@ fn amount_label(draft: &Draft) -> String {
         .amount_cents
         .map(yuan)
         .unwrap_or_else(|| "请补充".to_owned())
-}
-
-pub fn category_label(draft: &Draft) -> String {
-    match &draft.subcategory {
-        Some(sub) => format!("{}/{sub}", draft.category),
-        None => draft.category.clone(),
-    }
 }
 
 fn yuan(cents: i64) -> String {

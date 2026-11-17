@@ -1,6 +1,6 @@
 <script lang="ts">
   import { addEntry, app, accountOf, subsOf, toast, tops } from "../lib/store.svelte";
-  import type { EntryInput } from "../lib/api";
+  import { newEntryId, type EntryInput } from "../lib/api";
   import { dayLabel, localInput, time } from "../lib/format";
   import { amountInput, amountResult } from "../lib/amount";
   import type { FieldKey, FlowKind } from "../lib/types";
@@ -18,6 +18,8 @@
     return subsOf(first)[0] ?? first;
   };
   const now = new Date().toISOString();
+  /** 这一笔的 ID：保存失败重试沿用，记上之后「再记一笔」换新的。 */
+  let entryId = newEntryId();
   let draft: EntryInput = $state({
     kind: "expense",
     amount_cents: 0,
@@ -104,7 +106,7 @@
     useNow = false;
     picking = null;
   }
-  /** 正在提交：按钮先停用，免得连点记两笔（服务器不防重）。 */
+  /** 正在提交：按钮先停用，免得连点。 */
   let saving = $state(false);
   async function save(again = false) {
     const cents = result;
@@ -118,7 +120,7 @@
     }
     if (saving) return;
     saving = true;
-    const ok = await addEntry({
+    const saved = await addEntry(entryId, {
       ...draft,
       amount_cents: cents,
       occurred_at: useNow ? new Date().toISOString() : draft.occurred_at,
@@ -127,8 +129,9 @@
       tag_ids: [...draft.tag_ids],
     });
     saving = false;
-    // 没记上：面板和填好的内容都留着，提示由 store 弹出。
-    if (!ok) return;
+    // 没记上：面板、填好的内容和 ID 都留着，提示由 store 弹出。
+    if (!saved) return;
+    entryId = newEntryId();
     if (!again) app.creating = false;
     if (again) {
       amount = "";
@@ -136,7 +139,8 @@
       draft.merchant = null;
       error = "";
     }
-    toast(again ? "已记好，继续下一笔" : "已记好");
+    if (saved === "existed") toast("这笔之前已保存，没有重复记");
+    else toast(again ? "已记好，继续下一笔" : "已记好");
   }
 </script>
 

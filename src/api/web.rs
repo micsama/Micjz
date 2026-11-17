@@ -210,7 +210,8 @@ async fn save_settings(
     v: Result<Json<Settings>, JsonRejection>,
 ) -> Result<Json<Value>, WebError> {
     let v = body(v)?;
-    if !(1..=28).contains(&v.cycle_day)
+    if !(1..=28).contains(&v.cycle_day.abs())
+        || v.cycle_day == -1
         || v.budget_cents
             .is_some_and(|n| !(1..=entries::MAX_AMOUNT).contains(&n))
     {
@@ -223,17 +224,33 @@ async fn save_settings(
     )?;
     Ok(Json(read_settings(&conn)?))
 }
+/// 网页手填；`id` 由网页生成，重试沿用，用来防重复提交。
+#[derive(Deserialize)]
+struct NewEntry {
+    id: String,
+    #[serde(flatten)]
+    input: EntryInput,
+}
+/// 同一 `id` 已入账就原样返回那一笔（200），不比较内容；新建 201。
 async fn create_entry(
     State(s): State<Arc<AppState>>,
-    v: Result<Json<EntryInput>, JsonRejection>,
+    v: Result<Json<NewEntry>, JsonRejection>,
 ) -> Result<Response, WebError> {
-    let v = body(v)?;
-    if v.kind == EntryKind::Adjust {
+    let NewEntry { id, input } = body(v)?;
+    let id = uuid::Uuid::parse_str(&id)
+        .ok()
+        .filter(|u| u.get_version_num() == 7)
+        .ok_or_else(|| invalid("id 须为 UUIDv7"))?
+        .to_string();
+    if input.kind == EntryKind::Adjust {
         return Err(invalid("平账请用账户平账接口"));
     }
     let mut conn = s.db.conn();
     let tx = conn.transaction()?;
-    let entry = entries::insert(&tx, v.parse()?, None)?;
+    if let Some(existing) = entries::find(&tx, &id)? {
+        return Ok(Json(existing).into_response());
+    }
+    let entry = entries::insert(&tx, id, input.parse()?, None)?;
     tx.commit()?;
     Ok((StatusCode::CREATED, Json(entry)).into_response())
 }
@@ -378,6 +395,7 @@ async fn adjust(
     } else {
         Some(entries::insert(
             &tx,
+            entries::new_id(),
             EntryInput {
                 kind: EntryKind::Adjust,
                 amount_cents: difference,
@@ -410,25 +428,29 @@ async fn recognition(
         )
         .optional()?
         .ok_or_else(|| missing("识别记录"))?;
-    // 历史草稿按当前目录解析名称；不经 Draft::decode（它会校验当前目录）。
-    let d: Draft = serde_json::from_str(&origin).map_err(internal)?;
-    let category = db::draft_category_id(&conn, &d)?;
-    let account = catalog::find_name(&conn, "accounts", &d.account)?;
-    let mut tags = vec![];
-    for name in d.tags {
-        if let Some(id) = catalog::find_name(&conn, "tags", &name)? {
-            tags.push(id);
-        }
-    }
-    tags.sort_unstable();
+    let d: Origin = serde_json::from_str(&origin).map_err(internal)?;
     Ok(Json(json!({
         "id":id, "outcome":outcome, "reason":reason,
         "first":{
-            "kind":d.kind, "amount_cents":d.amount_cents, "category_id":category,
-            "account_id":account, "to_account_id":null, "merchant":d.merchant,
-            "occurred_at":flow::stamp(d.occurred_at), "note":d.note, "tag_ids":tags,
+            "kind":d.kind, "amount_cents":d.amount_cents, "category_id":d.category_id,
+            "account_id":d.account_id, "to_account_id":null, "merchant":d.merchant,
+            "occurred_at":flow::stamp(d.occurred_at), "note":d.note, "tag_ids":d.tag_ids,
         }
     })))
+}
+
+/// 识别留存的第一眼草稿，只读。旧库转换时对不上的分类、账户为空；
+/// 不走 `Draft`，因为当时的 id 现在可能已删。
+#[derive(Deserialize)]
+struct Origin {
+    kind: flow::Kind,
+    amount_cents: Option<i64>,
+    category_id: Option<i64>,
+    account_id: Option<i64>,
+    merchant: Option<String>,
+    occurred_at: chrono::DateTime<chrono::FixedOffset>,
+    note: Option<String>,
+    tag_ids: Vec<i64>,
 }
 async fn image(
     State(s): State<Arc<AppState>>,

@@ -12,6 +12,12 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await send(method, path, body);
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** 成功的响应原样给出（需要看状态码时用），失败变成 ApiError。 */
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(`api/${path}`, {
@@ -25,7 +31,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   } catch {
     throw new ApiError(0, "连不上服务器，请检查网络");
   }
-  if (res.ok) return (res.status === 204 ? undefined : await res.json()) as T;
+  if (res.ok) return res;
   const text = await res.json().then(
     (j: { error?: string }) => j.error,
     () => undefined,
@@ -41,8 +47,19 @@ export interface Settings {
   entry_count: number;
 }
 
-/** 新记一笔要给的字段；ID、入账时刻由服务器生成。 */
+/** 新记一笔要给的字段；ID 由 `newEntryId` 生成并随请求带上，入账时刻由服务器生成。 */
 export type EntryInput = Omit<Entry, "id" | "recognition_id" | "created_at">;
+
+/** 手记一笔的 UUIDv7：打开记账面板时生成，重试沿用，服务器据此防重复。 */
+export function newEntryId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  const ms = Date.now();
+  for (let i = 0; i < 6; i++) b[i] = Math.floor(ms / 2 ** (8 * (5 - i))) & 0xff;
+  b[6] = (b[6] & 0x0f) | 0x70;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 /** 改账目：只放要改的字段；`merchant`、`note` 给 `null` 是清空。 */
 export type EntryPatch = Partial<EntryInput>;
 export type AccountInput = Omit<Account, "id">;
@@ -61,7 +78,11 @@ export const api = {
   settings: () => call<Settings>("GET", "settings"),
   recognition: (id: string) => call<Recognition>("GET", `recognitions/${enc(id)}`),
 
-  addEntry: (e: EntryInput) => call<Entry>("POST", "entries", e),
+  /** 同一 `id` 已入账时服务器返回那一笔（200），`existed` 为真。 */
+  addEntry: async (id: string, e: EntryInput) => {
+    const res = await send("POST", "entries", { id, ...e });
+    return { entry: (await res.json()) as Entry, existed: res.status === 200 };
+  },
   patchEntry: (id: string, patch: EntryPatch) => call<Entry>("PATCH", `entries/${enc(id)}`, patch),
   deleteEntry: (id: string) => call<void>("DELETE", `entries/${enc(id)}`),
   adjust: (account: number, balance_cents: number) =>

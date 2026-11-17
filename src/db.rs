@@ -116,7 +116,9 @@ CREATE INDEX idx_requests_draft ON requests(draft_id);
 -- 用户设置，恒为一行，每个设置一列。周期从 cycle_day 号起；预算为空是不设。
 CREATE TABLE settings (
   id           INTEGER PRIMARY KEY CHECK (id = 1),
-  cycle_day    INTEGER NOT NULL DEFAULT 1 CHECK (cycle_day BETWEEN 1 AND 28),
+  -- 正数：本月 N 号起算本月；负数：上月 N 号起算本月。
+  cycle_day    INTEGER NOT NULL DEFAULT 1
+               CHECK (cycle_day BETWEEN -28 AND 28 AND cycle_day NOT IN (-1, 0)),
   budget_cents INTEGER CHECK (budget_cents > 0)
 ) STRICT;
 INSERT INTO settings (id) VALUES (1);
@@ -228,7 +230,7 @@ impl Db {
     }
 
     /// 确认截图草稿：账目新生成 id，`recognition_id` 是草稿 ID；账目和标签同一事务。
-    /// 同一草稿重复确认只记一笔。名称在这里换成 id；草稿期间被删改的分类、账户、标签会让入账失败。
+    /// 同一草稿重复确认只记一笔；草稿期间被删的分类、账户、标签由外键拦下，入账失败。
     /// 返回是否新插入。
     pub fn save(&self, d: &Draft, amount_cents: i64) -> anyhow::Result<bool> {
         let mut conn = self.conn();
@@ -246,22 +248,15 @@ impl Db {
                 flow::Kind::Income => entries::EntryKind::Income,
             },
             amount_cents,
-            category_id: Some(
-                draft_category_id(&tx, d)?
-                    .with_context(|| format!("分类已不存在：{}", flow::category_label(d)))?,
-            ),
-            account_id: catalog::name_id(&tx, "accounts", &d.account)?,
+            category_id: Some(d.category_id),
+            account_id: d.account_id,
             to_account_id: None,
             merchant: d.merchant.clone(),
             occurred_at: flow::stamp(d.occurred_at),
             note: d.note.clone(),
-            tag_ids: d
-                .tags
-                .iter()
-                .map(|t| catalog::name_id(&tx, "tags", t))
-                .collect::<anyhow::Result<_>>()?,
+            tag_ids: d.tag_ids.clone(),
         };
-        entries::insert(&tx, input.parse()?, Some(&d.id))?;
+        entries::insert(&tx, entries::new_id(), input.parse()?, Some(&d.id))?;
         tx.commit()?;
         Ok(true)
     }
@@ -316,18 +311,6 @@ impl Db {
         )?;
         Ok(())
     }
-}
-
-pub fn draft_category_id(conn: &Connection, d: &Draft) -> rusqlite::Result<Option<i64>> {
-    conn.query_row(
-        "SELECT coalesce(s.id, c.id) FROM categories c
-         LEFT JOIN categories s ON s.parent_id = c.id AND s.name = ?3
-         WHERE c.kind = ?1 AND c.parent_id IS NULL AND c.name = ?2
-           AND (?3 IS NULL OR s.id IS NOT NULL)",
-        params![d.kind.as_str(), d.category, d.subcategory],
-        |r| r.get(0),
-    )
-    .optional()
 }
 
 #[cfg(test)]

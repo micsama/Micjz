@@ -67,13 +67,18 @@ export const dayKey = (iso: string) => ymd(new Date(iso));
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /**
- * 记账周期：每月 `day` 号开始，到下月 `day` 号前结束。
- * 周期用开始的那个月标识，如 "2026-11"；`day` 为 1 时就是自然月。
- * 年用 "2026" 标识，是名为 2026-01 到 2026-12 的那 12 个周期。
+ * 记账周期按名义月标识，如 "2026-11"；年 "2026" 是名为 2026-01 到 2026-12 的那 12 期。
+ * `day` 为正：本月 `day` 号起算本月（1 就是自然月）；为负：上月 `-day` 号起算本月。
  */
+const monthStart = (y: number, m0: number, day: number) => (day > 0 ? new Date(y, m0, day) : new Date(y, m0 - 1, -day));
+
 export function periodOf(iso: string, day: number): string {
   const d = new Date(iso);
-  const m = new Date(d.getFullYear(), d.getMonth() - (d.getDate() < day ? 1 : 0), 1);
+  const y = d.getFullYear();
+  let m0 = d.getMonth();
+  if (d < monthStart(y, m0, day)) m0--;
+  else if (d >= monthStart(y, m0 + 1, day)) m0++;
+  const m = new Date(y, m0, 1);
   return `${m.getFullYear()}-${pad(m.getMonth() + 1)}`;
 }
 
@@ -84,11 +89,14 @@ export const within = (month: string, key: string) => (isYear(key) ? month.start
 
 /** 周期的起止，`end` 不含。 */
 export function periodRange(key: string, day: number): { start: Date; end: Date; days: number } {
-  const [y, m] = key.split("-").map(Number);
-  const start = isYear(key) ? new Date(y, 0, day) : new Date(y, m - 1, day);
-  const end = isYear(key) ? new Date(y + 1, 0, day) : new Date(y, m, day);
+  const [y, m = 1] = key.split("-").map(Number);
+  const start = monthStart(y, m - 1, day);
+  const end = isYear(key) ? monthStart(y + 1, 0, day) : monthStart(y, m, day);
   return { start, end, days: Math.round((end.getTime() - start.getTime()) / 86400000) };
 }
+
+/** 设置里周期的说法。 */
+export const cycleText = (day: number) => (day === 1 ? "自然月" : day > 0 ? `本月 ${day} 号起` : `上月 ${-day} 号起`);
 
 /** `title` 是大标题；`range` 只在周期不从 1 号开始时给出实际起止。 */
 export function periodLabel(key: string, day: number): { title: string; year: string; range: string } {

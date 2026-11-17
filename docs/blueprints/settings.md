@@ -13,7 +13,8 @@
 ```sql
 CREATE TABLE settings (
   id           INTEGER PRIMARY KEY CHECK (id = 1),   -- 只有一行
-  cycle_day    INTEGER NOT NULL DEFAULT 1 CHECK (cycle_day BETWEEN 1 AND 28),
+  cycle_day    INTEGER NOT NULL DEFAULT 1
+               CHECK (cycle_day BETWEEN -28 AND 28 AND cycle_day NOT IN (-1, 0)),  -- v7
   budget_cents INTEGER CHECK (budget_cents > 0)      -- 每期预算；空为不设
 );
 INSERT INTO settings (id) VALUES (1);
@@ -22,7 +23,7 @@ INSERT INTO settings (id) VALUES (1);
 - **只有一行、每个设置一列**，不做 key-value 表：每个设置都有自己的列类型和 CHECK 约束，加设置时加一列，版本加一。
   - 普通表的 `INTEGER` 列存得进小数（`cycle_day = 1.5` 能写入，CHECK 只管范围），所以「读出来就是整数」现在靠二进制写入时用 `i64` 保证。v5 起所有表已改 `STRICT`，类型由数据库保证，见[账目蓝图](entries.md)。
   - 无论表是不是 `STRICT`，网页写设置的接口都要在入口解析、校验请求，不能直接把请求里的值交给数据库约束。
-- **记账周期**：一期从 `cycle_day` 号开始，到下个月同一天的前一天为止。周期以开始那天所在的月份命名（如 `2026-11` 指 11 月 25 日到 12 月 24 日）。只能设 1～28 号，免得遇到 2 月没有 30 号这种情况。默认 1 号，也就是自然月。
+- **记账周期**：一期从某天开始，到下个月同一天的前一天为止。正数 N：本月 N 号起，算本月（`25` 时 `2026-11` 指 11 月 25 日到 12 月 24 日）；负数 −N（v7 起）：上月 N 号起，算本月（`-25` 时 `2026-11` 指 10 月 25 日到 11 月 24 日）。只能设到 28 号，免得遇到 2 月没有 30 号这种情况；−1 等于把自然月整体错一个名字，不允许。默认 1，也就是自然月。见 [表结构 v7](schema-7.md)。
 - **每期预算**：一个总数，单位分，不分分类。
 - 主题选择不进这张表：每台设备可以不一样，留在浏览器里。
 

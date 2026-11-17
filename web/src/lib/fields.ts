@@ -66,7 +66,10 @@ export const labelOf = (def: FieldDef, e: Pick<Entry, "kind">) => def.as?.[e.kin
 export function changes(e: Entry, r: Recognition): { def: FieldDef; from: string; to: string }[] {
   const out = [];
   for (const def of fieldsOf(e)) {
-    const from = r.first.amount_cents === null && def.key === "amount_cents" ? "" : def.show(r.first as Fields);
+    const key = def.key as keyof Recognition["first"];
+    // 旧库转换时对不上的分类、账户为空：当时选的已删除或改名，不猜。
+    const gone = (key === "category_id" || key === "account_id") && r.first[key] === null;
+    const from = gone ? "当时的已不在" : r.first.amount_cents === null && key === "amount_cents" ? "" : def.show(r.first as Fields);
     const to = def.show(e);
     if (from !== to) out.push({ def, from: from || "空", to: to || "空" });
   }

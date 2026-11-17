@@ -8,18 +8,32 @@ fn now() -> DateTime<FixedOffset> {
 }
 
 fn draft() -> Draft {
+    let cat = catalog::defaults();
     Draft {
         id: "01".to_owned(),
         kind: Kind::Expense,
         amount_cents: Some(3250),
-        category: "🍜 餐饮".to_owned(),
-        subcategory: Some("☕️ 咖啡饮品".to_owned()),
-        account: "微信".to_owned(),
+        category_id: cat.by_key(Kind::Expense, "coffee").unwrap(),
+        account_id: cat.account_named("微信").unwrap(),
         merchant: Some("瑞幸咖啡".to_owned()),
         occurred_at: now(),
         note: None,
-        tags: Vec::new(),
+        tag_ids: Vec::new(),
     }
+}
+
+/// 断言用的名字。
+fn path(d: &Draft) -> String {
+    d.category_path(&catalog::defaults())
+}
+
+fn account(d: &Draft) -> String {
+    d.account_name(&catalog::defaults()).to_owned()
+}
+
+fn tags(d: &Draft) -> Vec<String> {
+    let cat = catalog::defaults();
+    d.tag_names(&cat).into_iter().map(str::to_owned).collect()
 }
 
 fn reply(draft: Draft, field: &str, value: &str) -> Reply {
@@ -35,7 +49,7 @@ fn decoded(r: &Reply) -> Draft {
 
 #[test]
 fn menu_summary() {
-    let r = menu(&draft(), now());
+    let r = menu(&draft(), now(), &catalog::defaults());
     assert_eq!(r.step, StepType::Choose);
     assert_eq!(r.field, "action");
     assert!(r.summary.is_empty());
@@ -83,7 +97,7 @@ fn two_level_category() {
 
     let r = reply(decoded(&r), "category", "🚇 交通");
     assert_eq!(r.field, "subcategory");
-    assert_eq!(decoded(&r).subcategory, None);
+    assert_eq!(path(&decoded(&r)), "🚇 交通", "没选二级前停在一级");
 
     let r = reply(decoded(&r), "subcategory", "🚕 打车");
     assert_eq!(r.field, "action");
@@ -114,11 +128,11 @@ fn amount_input() {
 #[test]
 fn tags_replace_and_clear() {
     let r = reply(draft(), "tags", "恋爱");
-    assert_eq!(decoded(&r).tags, vec!["恋爱"]);
+    assert_eq!(tags(&decoded(&r)), ["恋爱"]);
     assert!(r.options.contains(&"🏷️ 标签 · 恋爱".to_owned()));
 
     let r = reply(decoded(&r), "tags", "");
-    assert!(decoded(&r).tags.is_empty());
+    assert!(decoded(&r).tag_ids.is_empty());
 
     assert!(step(draft(), "tags", "不存在", now(), &catalog::defaults()).is_err());
 }
@@ -128,10 +142,7 @@ fn switch_kind_resets_category() {
     let r = reply(draft(), "kind", "↗️ 收入");
     assert_eq!(r.field, "category");
     let d = decoded(&r);
-    assert_eq!(
-        (d.kind, d.category.as_str(), d.subcategory),
-        (Kind::Income, "✨ 其他", None)
-    );
+    assert_eq!((d.kind, path(&d).as_str()), (Kind::Income, "✨ 其他"));
 
     let r = reply(draft(), "kind", "↘️ 支出");
     assert_eq!(r.field, "action", "未变化直接回主菜单");
@@ -163,14 +174,17 @@ fn rejects_invalid_input() {
     assert!(Draft::decode("not-base64!", &catalog::defaults()).is_err());
 
     let mut d = draft();
-    d.category = "不存在".to_owned();
+    d.category_id = 9999;
+    assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_err());
+    let mut d = draft();
+    d.tag_ids = vec![9999];
     assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_err());
 }
 
 #[test]
 fn dynamic_actions_round_trip() {
     let d = draft();
-    let menu = menu(&d, now());
+    let menu = menu(&d, now(), &catalog::defaults());
     for (option, field) in menu.options.iter().zip([
         "amount",
         "kind",
@@ -194,11 +208,11 @@ fn decorated_choices_store_plain_values() {
     let r = reply(draft(), "category", "🚇 交通");
     assert!(r.options.contains(&"🚕 打车".to_owned()));
     let r = reply(decoded(&r), "subcategory", "🚕 打车");
-    assert_eq!(decoded(&r).subcategory.as_deref(), Some("🚕 打车"));
+    assert_eq!(path(&decoded(&r)), "🚇 交通/🚕 打车");
     let r = reply(decoded(&r), "account", "银行卡");
-    assert_eq!(decoded(&r).account, "银行卡");
+    assert_eq!(account(&decoded(&r)), "银行卡");
     let r = reply(decoded(&r), "tags", "恋爱");
-    assert_eq!(decoded(&r).tags, ["恋爱"]);
+    assert_eq!(tags(&decoded(&r)), ["恋爱"]);
     let r = reply(decoded(&r), "kind", "↗️ 收入");
     assert_eq!(decoded(&r).kind, Kind::Income);
     assert!(step(draft(), "account", "🛑 微信", now(), &catalog::defaults()).is_err());
@@ -208,7 +222,7 @@ fn decorated_choices_store_plain_values() {
 fn missing_amount_blocks_confirm() {
     let mut d = draft();
     d.amount_cents = None;
-    let m = menu(&d, now());
+    let m = menu(&d, now(), &catalog::defaults());
     assert!(m.summary.is_empty(), "不在顶部提示");
     assert!(m.options.contains(&"💰 金额 · 请补充".to_owned()));
 
@@ -248,10 +262,10 @@ fn draft_validation() {
     d.amount_cents = Some(0);
     assert!(Draft::decode(&d.encode(), &catalog::defaults()).is_err());
     let mut d = draft();
-    d.subcategory = Some("打车".to_owned());
+    d.kind = Kind::Income;
     assert!(
         Draft::decode(&d.encode(), &catalog::defaults()).is_err(),
-        "二级须属于当前一级"
+        "分类须与类型一致"
     );
     let mut d = draft();
     d.amount_cents = None;

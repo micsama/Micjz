@@ -226,7 +226,7 @@ async fn recognize_handler(
         "识别"
     );
     let notice = recognize::notice(r.outcome, r.reason.as_deref());
-    Ok(Json(remind(flow::menu(&r.draft, now), notice)))
+    Ok(Json(remind(flow::menu(&r.draft, now, &cat), notice)))
 }
 
 /// 识别没成功时，每一屏顶部都提醒一次；字段照留，确认由用户决定。
@@ -324,7 +324,11 @@ async fn step_handler(
         } => match state.db.save(&draft, amount_cents) {
             Ok(inserted) => {
                 tracing::info!(id = %draft.id, inserted, "入账");
-                Ok(Json(Reply::done(flow::saved_message(&draft, amount_cents))))
+                Ok(Json(Reply::done(flow::saved_message(
+                    &draft,
+                    amount_cents,
+                    &cat,
+                ))))
             }
             Err(e) => {
                 tracing::error!(id = %draft.id, error = %format!("{e:#}"), "入账失败");

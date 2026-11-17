@@ -151,14 +151,18 @@ fn tags(tx: &Transaction<'_>, id: &str, ids: &[i64]) -> Result<()> {
     }
     Ok(())
 }
+pub fn new_id() -> String {
+    uuid::Uuid::now_v7().to_string()
+}
+/// `id` 由调用者给：新生成，或网页请求带来的幂等键（已存在由调用者先查）。
 pub fn insert(
     tx: &Transaction<'_>,
+    id: String,
     input: ValidatedEntry,
     recognition: Option<&str>,
 ) -> Result<Entry> {
     let ValidatedEntry(v) = input;
     validate_references(tx, &v)?;
-    let id = uuid::Uuid::now_v7().to_string();
     let created_at = crate::flow::stamp(crate::flow::now());
     tx.execute(
         "INSERT INTO entries (id, recognition_id, kind, amount_cents, category_id, account_id,
@@ -208,7 +212,10 @@ pub fn update(tx: &Transaction<'_>, id: &str, input: ValidatedEntry) -> Result<E
     get(tx, id)
 }
 pub fn get(conn: &Connection, id: &str) -> Result<Entry> {
-    let mut e = conn
+    find(conn, id)?.ok_or_else(|| Error::Missing("账目不存在".into()))
+}
+pub fn find(conn: &Connection, id: &str) -> Result<Option<Entry>> {
+    let Some(mut e) = conn
         .query_row(
             "SELECT id, recognition_id, kind, amount_cents, category_id, account_id,
                 to_account_id, merchant, occurred_at, note, created_at FROM entries WHERE id=?1",
@@ -241,12 +248,14 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry> {
             },
         )
         .optional()?
-        .ok_or_else(|| Error::Missing("账目不存在".into()))?;
+    else {
+        return Ok(None);
+    };
     e.input.tag_ids = conn
         .prepare("SELECT tag_id FROM entry_tags WHERE entry_id=?1 ORDER BY tag_id")?
         .query_map([id], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(e)
+    Ok(Some(e))
 }
 pub fn list(conn: &Connection, from: &str, to: &str, ascending: bool) -> Result<Vec<Entry>> {
     let order = if ascending { "ASC" } else { "DESC" };

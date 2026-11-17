@@ -6,7 +6,7 @@
   import Icon from "../../ui/Icon.svelte";
   import { app, currentPeriod, isLatest, settings, setUnit, want } from "../../lib/store.svelte";
   import { monthTotals, type Sum } from "../../lib/query";
-  import { isYear, periodLabel, shiftPeriod } from "../../lib/format";
+  import { cycleText, isYear, periodLabel, shiftPeriod } from "../../lib/format";
 
   /**
    * `onshift` 拿到切换方向（-1 往前、1 往后、0 换单位），页面用它决定内容怎么进场。
@@ -109,7 +109,7 @@
           {/each}
         </div>
       {/if}
-      <p>{year ? "下面是每年的支出" : "下面是每月的支出"}{settings.cycle_day === 1 ? "" : `，每期从 ${settings.cycle_day} 号起`}</p>
+      <p>{year ? "下面是每年的支出" : "下面是每月的支出"}{settings.cycle_day === 1 ? "" : `，每期${cycleText(settings.cycle_day)}`}</p>
     </div>
   {/if}
 </div>

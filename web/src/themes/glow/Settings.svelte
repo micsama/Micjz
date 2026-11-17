@@ -7,7 +7,7 @@
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { logout, settings } from "../../lib/store.svelte";
   import { EXPORT_URL } from "../../lib/api";
-  import { money } from "../../lib/format";
+  import { cycleText, money } from "../../lib/format";
   import { setTheme, themeState } from "../../lib/theme.svelte";
   import { THEMES } from "../index";
 
@@ -46,7 +46,7 @@
     <button class="row" onclick={() => (editing = "cycle")}>
       <span class="fi" style:--fc="var(--c2)"><Icon name="calendar" size={18} weight={2.2} /></span>
       <span class="label">记账周期</span>
-      <span class="value">{settings.cycle_day === 1 ? "自然月" : `每月 ${settings.cycle_day} 号起`}</span>
+      <span class="value">{cycleText(settings.cycle_day)}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
     <button
