@@ -2,7 +2,7 @@
 // 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
 import { api, ApiError, type AccountInput, type EntryInput, type EntryPatch, type Settings } from "./api";
-import { isYear, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
+import { isYear, money, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
 export type Tab = "list" | "stats" | "wealth" | "settings";
@@ -111,8 +111,11 @@ export async function boot() {
   Object.assign(settings, s);
   app.balances = Object.fromEntries((b as Awaited<ReturnType<typeof api.balances>>).balances.map((x) => [x.account_id, x.balance_cents]));
   app.period = currentPeriod();
-  await Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]);
-  if (app.phase === "loading") app.phase = "ready";
+  following = true;
+  const got = await Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]);
+  if (app.phase !== "loading") return;
+  if (got.every(Boolean)) app.phase = "ready";
+  else [app.phase, app.failure] = ["failed", "账目没取到，请重试"];
 }
 
 /** 登录成功返回空，失败返回给人看的原因。登录的 401、409 是表单上的错，不走 `attempt` 的回登录页、重取目录。 */
@@ -143,21 +146,23 @@ export async function logout() {
 export async function refresh() {
   if (app.phase !== "ready") return;
   await Promise.all([reloadCatalog(), refreshTotals(), ...app.years.map(fetchYear)]);
+  if (following) app.period = currentPeriod(isYear(app.period));
 }
 
 const yearOf = (iso: string) => new Date(iso).getFullYear();
-const inflight = new Map<number, Promise<void>>();
+const inflight = new Map<number, Promise<boolean>>();
 
-/** 取一整年，替换内存里这一年的账目。同一年同时只取一次。 */
-function fetchYear(y: number): Promise<void> {
+/** 取一整年，替换内存里这一年的账目，返回是否取到。同一年同时只取一次。 */
+function fetchYear(y: number): Promise<boolean> {
   let p = inflight.get(y);
   if (!p) {
     p = guard(api.entries(new Date(y, 0, 1), new Date(y + 1, 0, 1)))
       .then((r) => {
-        if (!r) return;
+        if (!r) return false;
         app.entries = [...app.entries.filter((e) => yearOf(e.occurred_at) !== y), ...r.entries].sort(newestFirst);
         if (!app.years.includes(y)) app.years.push(y);
         app.earliest = r.earliest;
+        return true;
       })
       .finally(() => inflight.delete(y));
     inflight.set(y, p);
@@ -165,13 +170,13 @@ function fetchYear(y: number): Promise<void> {
   return p;
 }
 
-/** 这段周期（月或年）覆盖的自然年都取齐；视图要看哪段就先要哪段。 */
-export function want(period: string): Promise<void> {
+/** 这段周期（月或年）覆盖的自然年都取齐，返回是否都取到；视图要看哪段就先要哪段。 */
+export function want(period: string): Promise<boolean> {
   const { start, end } = periodRange(period, settings.cycle_day);
   const last = Math.min(new Date(end.getTime() - 1).getFullYear(), new Date().getFullYear());
   const todo = [];
   for (let y = start.getFullYear(); y <= last; y++) if (!app.years.includes(y)) todo.push(fetchYear(y));
-  return Promise.all(todo).then(() => {});
+  return Promise.all(todo).then((r) => r.every(Boolean));
 }
 
 /** 服务器返回的一笔放进内存：它那年取过就放进去（有就替换）；没取过就去取那一年。 */
@@ -197,6 +202,13 @@ export const currentPeriod = (year = false) => {
   const m = periodOf(new Date().toISOString(), settings.cycle_day);
   return year ? m.slice(0, 4) : m;
 };
+
+/**
+ * 正在看的就是当前期：回到前台时跟着时间走到新的当前期。
+ * 由 `app.period` 的变化维护（App.svelte 里的 effect），翻到历史就不跟了。
+ */
+let following = false;
+export const follow = () => (following = app.period === currentPeriod(isYear(app.period)));
 
 /** 已经是最新的周期，不能再往后翻。 */
 export const isLatest = (key: string) => key >= currentPeriod(isYear(key));
@@ -303,7 +315,7 @@ export async function addEntry(fields: EntryInput): Promise<boolean> {
  * 改一笔：先改内存让界面立刻跟上，再以服务器返回为准；失败就改回去。
  * 支出、收入互换后原分类不再适用：换成「其他」，接着让用户选分类（同快捷指令）。转账、平账不能换类型。
  */
-export async function update(id: string, patch: EntryPatch) {
+export function update(id: string, patch: EntryPatch) {
   const e = find(id);
   if (!e) return;
   if (patch.kind && patch.kind !== e.kind) {
@@ -312,15 +324,25 @@ export async function update(id: string, patch: EntryPatch) {
   }
   const before = Object.fromEntries(Object.keys(patch).map((k) => [k, e[k as keyof EntryPatch]]));
   Object.assign(e, patch);
-  const next = await guard(api.patchEntry(id, patch));
-  if (!next) {
-    const cur = find(id);
-    if (cur) Object.assign(cur, before);
-    return;
-  }
-  place(next);
-  void refreshTotals();
+  const run = async () => {
+    const next = await guard(api.patchEntry(id, patch));
+    // 后面还有排着的修改：中间结果不往界面上放，免得盖掉更新的选择；失败只撤回这次改的字段。
+    const last = queue.get(id) === p;
+    if (last) queue.delete(id);
+    if (!next) {
+      const cur = find(id);
+      if (cur) for (const k of Object.keys(patch) as (keyof EntryPatch)[]) if (cur[k] === patch[k]) Object.assign(cur, { [k]: before[k] });
+      return;
+    }
+    if (last) place(next);
+    void refreshTotals();
+  };
+  // 同一笔的修改一个接一个发：连点两个标签、换类型后马上选分类，服务器按点的顺序写。
+  const p: Promise<void> = (queue.get(id) ?? Promise.resolve()).then(run);
+  queue.set(id, p);
+  return p;
 }
+const queue = new Map<string, Promise<void>>();
 
 /** 撤销期内的删除：到期或网页切到后台时才真正发出。 */
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
@@ -401,6 +423,17 @@ export async function removeAccount(id: number): Promise<string | null> {
   const i = list.findIndex((a) => a.id === id);
   if (i >= 0) list.splice(i, 1);
   toast(i === 0 && list.length ? `已删除，默认账户：${list[0].name}` : "已删除");
+  return null;
+}
+
+/** 平账：填账户实际余额，差额记成一笔平账；失败返回原因。 */
+export async function adjust(account: number, balance_cents: number): Promise<string | null> {
+  const r = await attempt(api.adjust(account, balance_cents));
+  if (r instanceof ApiError) return r.message;
+  if (r.entry) place(r.entry);
+  app.balances[account] = r.balance_cents;
+  toast(r.entry ? `已平账 ${money(r.entry.amount_cents, true)}` : "余额一致，不用调整");
+  void refreshTotals();
   return null;
 }
 

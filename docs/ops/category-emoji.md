@@ -18,10 +18,10 @@
 
 已在本地演练：用 v5 表结构加 seed 建库、去掉所有 emoji、再把一个分类改成自定义名，执行后其余分类都补上，自定义名保留。
 
-服务器上执行（先备份）：
+服务器上执行（先备份；库开了 WAL，运行中直接 `cp` 主文件可能漏掉还在 WAL 里的数据，所以用 `.backup`）：
 
 ```sh
-cp data/micjz.db data/micjz.db.before-emoji
+sqlite3 data/micjz.db ".backup data/micjz.db.before-emoji"
 sed -n '/^BEGIN;/,/^COMMIT;/p' docs/ops/category-emoji.md | sqlite3 data/micjz.db
 micjz category list    # 核对；没补上的是改过名的，用 micjz category rename 自己补
 ```

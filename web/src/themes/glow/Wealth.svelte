@@ -3,6 +3,7 @@
   import Sheet from "../../ui/Sheet.svelte";
   import SwipeRow, { type SwipeAction } from "../../ui/SwipeRow.svelte";
   import AccountEditor from "../../ui/AccountEditor.svelte";
+  import AdjustEditor from "../../ui/AdjustEditor.svelte";
   import AccountLogo from "../../ui/AccountLogo.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { Reorder } from "../../ui/reorder.svelte";
@@ -16,6 +17,8 @@
   let collapsed = $state(false);
   /** 正在编辑的账户；`"new"` 是新建。 */
   let editing = $state<Account | "new" | null>(null);
+  /** 正在平账的账户。 */
+  let adjusting = $state<Account | null>(null);
   const reorder = new Reorder(moveAccount);
 
   // 财富页只看此刻：净资产和各账户余额，不随周期变；某段时间的收支点进账户看。
@@ -31,6 +34,14 @@
   function actions(a: Account): SwipeAction[] {
     const out: SwipeAction[] = [];
     if (a.card) out.push({ icon: "copy", label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
+    out.push({
+      icon: "scale",
+      label: "平账",
+      run: () => {
+        holdKeyboard("decimal");
+        adjusting = a;
+      },
+    });
     out.push({ icon: "pencil", label: "编辑账户", run: () => (editing = a) });
     return out;
   }
@@ -109,12 +120,16 @@
       </div>
     {/each}
   </div>
-  <p class="foot">长按拖动排序</p>
+  <p class="foot">长按拖动排序；左滑平账，填实际余额，差额记一笔平账</p>
   <div class="tail"></div>
 </div>
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
   {#if editing}<AccountEditor account={editing === "new" ? null : editing} onclose={() => (editing = null)} />{/if}
+</Sheet>
+
+<Sheet open={adjusting !== null} onclose={() => (adjusting = null)}>
+  {#if adjusting}<AdjustEditor account={adjusting} onclose={() => (adjusting = null)} />{/if}
 </Sheet>
 
 <style>
