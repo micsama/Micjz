@@ -11,9 +11,14 @@
   import { color, slices } from "../../lib/look";
   import { isSpend } from "../../lib/kinds";
   import { accountName, tagNames, view } from "../../lib/view";
+  import type { Entry } from "../../lib/types";
 
   let scrolled = $state(false);
   let picked = $state<string | null>(null);
+  /** 展开了明细的二级分类。 */
+  let pickedSub = $state<string | null>(null);
+  let showAll = $state(false);
+  const LIMIT = 20;
   let day = $state<number | null>(null);
 
   const list = $derived(statEntries(app.period));
@@ -46,11 +51,14 @@
   const parts = $derived(breakdown(list));
   const ring = $derived(slices(parts, idx, fallbackOf("expense").name, 6));
   /** 直接记在一级上的消费列为「未细分」。 */
-  const subs = (name: string) =>
-    sumBy(list, (e) => {
-      const c = categoryOf(e.category_id);
-      return c && topOf(c).name === name ? (c.parent_id === null ? "未细分" : c.name) : null;
-    });
+  const subName = (e: Entry, top: string) => {
+    const c = categoryOf(e.category_id);
+    return c && topOf(c).name === top ? (c.parent_id === null ? "未细分" : c.name) : null;
+  };
+  const subs = (top: string) => sumBy(list, (e) => subName(e, top));
+  const subEntries = (top: string, sub: string) => list.filter((e) => isSpend(e) && subName(e, top) === sub);
+  /** 条目多时先只看金额最大的几条。 */
+  const shown = (all: Entry[]) => (showAll ? all : [...all].sort((a, b) => b.amount_cents - a.amount_cents).slice(0, LIMIT));
   const accounts = $derived(sumBy(list, (e) => accountName(e.account_id)));
   const merchants = $derived(sumBy(list, (e) => e.merchant).slice(0, 5));
   const tags = $derived(sumBy(list, (e) => tagNames(e.tag_ids)));
@@ -67,6 +75,8 @@
   $effect(() => {
     void [app.period, app.filter.account, app.filter.category, app.filter.tag];
     picked = null;
+    pickedSub = null;
+    showAll = false;
     day = null;
   });
 
@@ -160,7 +170,11 @@
         </Donut>
       </div>
       {#each parts as p (p.name)}
-        <button class="cat" class:open={picked === p.name} onclick={() => (picked = picked === p.name ? null : p.name)}>
+        <button
+          class="cat"
+          class:open={picked === p.name}
+          onclick={() => ((picked = picked === p.name ? null : p.name), (pickedSub = null), (showAll = false))}
+        >
           <span class="ce" style:--c={color(idx(p.name))}>{badge(p.name).icon}</span>
           <span class="cn">{badge(p.name).text}<small>{p.count} 笔</small></span>
           <span class="cv num">{money(p.cents)}<small>{pct(p.cents)}</small></span>
@@ -168,7 +182,20 @@
         {#if picked === p.name}
           <div class="subs">
             {#each subs(p.name) as s (s.name)}
-              {@render bar(s.name, s.cents, s.count, color(idx(p.name)), p.cents)}
+              <button class="sub" class:open={pickedSub === s.name} onclick={() => ((pickedSub = pickedSub === s.name ? null : s.name), (showAll = false))}>
+                {@render bar(s.name, s.cents, s.count, color(idx(p.name)), p.cents)}
+              </button>
+              {#if pickedSub === s.name}
+                {@const all = subEntries(p.name, s.name)}
+                <div class="sub-entries">
+                  <EntryDays list={shown(all)} account={app.filter.account ?? undefined} />
+                  {#if all.length > LIMIT}
+                    <button class="more" onclick={() => (showAll = !showAll)}>
+                      {showAll ? "只看金额最大的 20 笔" : `金额最大的 20 笔 · 显示全部 ${all.length} 笔`}
+                    </button>
+                  {/if}
+                </div>
+              {/if}
             {:else}
               <p class="none">没有二级分类</p>
             {/each}
@@ -495,6 +522,33 @@
     gap: 12px;
     padding: 6px 16px 14px 58px;
     background: var(--press);
+  }
+  .sub {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  .more {
+    display: block;
+    width: calc(100% - 32px);
+    margin: 10px 16px 0;
+    padding: 9px;
+    border: 0;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--tint) 14%, transparent);
+    color: var(--tint);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .sub-entries {
+    margin: 0 -16px 0 -58px;
+    padding-bottom: 4px;
   }
   .bar-row {
     display: grid;
