@@ -18,14 +18,16 @@
       <button class:on={app.tab === t.id} onclick={(e) => selectTab(t.id, e.currentTarget)}>
         <span class="e">{t.emoji}</span>{t.label}
       </button>
-    {:else}<button class="add" onclick={() => (app.creating = true)} aria-label="记一笔"><Icon name="plus" size={24} weight={2.6} /></button>{/if}
+    {:else}<button class="add" onclick={() => (app.creating = true)} aria-label="记一笔"><Icon name="plus" size={26} weight={2.6} /></button>{/if}
   {/each}
 </nav>
 
 <style>
+  /* 加号比栏高，往上凸出一截。 */
   .add {
-    width: 42px;
-    height: 42px;
+    width: 52px;
+    height: 52px;
+    margin-top: -18px;
     align-self: center;
     justify-self: center;
     border-radius: 50%;
@@ -45,7 +47,7 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     width: min(360px, calc(100% - 32px));
-    padding: 6px;
+    padding: 4px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--card) 88%, transparent);
     backdrop-filter: blur(20px);
@@ -56,10 +58,10 @@
   }
   .blob {
     position: absolute;
-    top: 6px;
-    bottom: 6px;
-    left: 6px;
-    width: calc((100% - 12px) / 5);
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc((100% - 8px) / 5);
     border-radius: 999px;
     background: linear-gradient(135deg, #ffa6c1, var(--tint));
     transform: translateX(calc(var(--at) * 100%));
@@ -72,13 +74,13 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    gap: 1px;
-    height: 46px;
+    gap: 0;
+    height: 40px;
     border: 0;
     background: none;
     color: var(--label2);
     font: inherit;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     transition:
       color 0.3s,
@@ -91,7 +93,7 @@
     transform: scale(0.9);
   }
   .e {
-    font-size: 19px;
+    font-size: 16px;
     transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   button.on .e {

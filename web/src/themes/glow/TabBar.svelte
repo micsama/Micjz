@@ -18,12 +18,12 @@
   {#each slots as t, i (t?.id ?? i)}
     {#if t}
       <button class:on={app.tab === t.id} onclick={(e) => selectTab(t.id, e.currentTarget)}>
-        <Icon name={t.icon} size={23} weight={app.tab === t.id ? 2.3 : 1.9} />
+        <Icon name={t.icon} size={20} weight={app.tab === t.id ? 2.3 : 1.9} />
         <span>{t.label}</span>
       </button>
     {:else}
       <button class="add" aria-label="记一笔" onclick={() => (app.creating = true)}>
-        <span class="plus"><Icon name="plus" size={22} weight={2.6} /></span>
+        <span class="plus"><Icon name="plus" size={26} weight={2.6} /></span>
       </button>
     {/if}
   {/each}
@@ -39,7 +39,7 @@
     display: grid;
     grid-template-columns: repeat(var(--n), 1fr);
     width: min(380px, calc(100% - 24px));
-    padding: 5px;
+    padding: 4px;
     border-radius: 999px;
     background: var(--glass-bg);
     backdrop-filter: blur(24px) saturate(190%);
@@ -51,10 +51,10 @@
   }
   .pill {
     position: absolute;
-    top: 5px;
-    bottom: 5px;
-    left: 5px;
-    width: calc((100% - 10px) / var(--n));
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc((100% - 8px) / var(--n));
     border-radius: 999px;
     background: var(--glass-pill);
     box-shadow: inset 0 0.5px 0 var(--glass-edge);
@@ -66,8 +66,8 @@
     display: grid;
     justify-items: center;
     align-content: center;
-    gap: 1px;
-    height: 52px;
+    gap: 0;
+    height: 42px;
     border: 0;
     background: none;
     color: var(--label);
@@ -84,11 +84,13 @@
   button:active {
     transform: scale(0.9);
   }
+  /* 加号比栏高，往上凸出一截。 */
   .plus {
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
+    width: 54px;
+    height: 54px;
+    margin-top: -18px;
     border-radius: 50%;
     color: #fff;
     background: linear-gradient(145deg, color-mix(in oklab, var(--tint) 60%, white), var(--tint));
