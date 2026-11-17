@@ -14,9 +14,16 @@
   import { color } from "../lib/look";
   import type { Category, FlowKind, Tag } from "../lib/types";
 
-  let { which, onback }: { which: "categories" | "tags"; onback: () => void } = $props();
+  /** `from` 是返回按钮上的上一页名称；`initialKind` 是分类先显示支出还是收入。 */
+  let {
+    which,
+    onback,
+    from = "设置",
+    initialKind = "expense",
+  }: { which: "categories" | "tags"; onback: () => void; from?: string; initialKind?: FlowKind } = $props();
 
-  let kind = $state<FlowKind>("expense");
+  // svelte-ignore state_referenced_locally
+  let kind = $state<FlowKind>(initialKind);
   const list = $derived(tops(kind));
   /** 展开的一级；一次只展开一个。 */
   let openId = $state<number | null>(null);
@@ -37,7 +44,7 @@
 
 <div class="page">
   <header class="bar">
-    <button class="back" onclick={onback}><Icon name="chevron-left" size={22} weight={2.6} />设置</button>
+    <button class="back" onclick={onback}><Icon name="chevron-left" size={22} weight={2.6} />{from}</button>
     <span class="t">{which === "tags" ? "标签" : "分类"}</span>
     <span></span>
   </header>

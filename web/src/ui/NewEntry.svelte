@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { addEntry, app, accountOf, subsOf, toast, tops } from "../lib/store.svelte";
+  import { addEntry, app, accountOf, categoryOf, subsOf, toast, tops } from "../lib/store.svelte";
   import { newEntryId, type EntryInput } from "../lib/api";
   import { dayLabel, localInput, time } from "../lib/format";
   import { amountInput, amountResult } from "../lib/amount";
@@ -12,6 +12,8 @@
   import CategoryChoices from "./CategoryChoices.svelte";
   import Segmented from "./Segmented.svelte";
   import Icon from "./Icon.svelte";
+  import Pushed from "./Pushed.svelte";
+  import CatalogPage from "./CatalogPage.svelte";
 
   const firstCategory = (kind: FlowKind) => {
     const first = tops(kind)[0];
@@ -54,6 +56,13 @@
           .join("、")
       : "标签",
   );
+
+  /** 记账时顺手管理分类；回来时选中的分类若已删掉，换回默认。 */
+  let managing = $state(false);
+  function closeManage() {
+    managing = false;
+    if (draft.kind !== "transfer" && !categoryOf(draft.category_id)) draft.category_id = firstCategory(draft.kind as FlowKind).id;
+  }
 
   function openNote() {
     holdKeyboard();
@@ -157,7 +166,7 @@
       value={draft.kind as "expense" | "income" | "transfer"}
       onchange={changeKind}
     />
-    <span class="spacer"></span>
+    <button class="close" aria-label="管理分类" onclick={() => (managing = true)}><Icon name="gear" size={20} /></button>
   </header>
 
   <div class="choices">
@@ -298,6 +307,14 @@
   </footer>
 </div>
 
+{#if managing}
+  <div class="over">
+    <Pushed onback={closeManage}
+      ><CatalogPage which="categories" from="记一笔" initialKind={draft.kind === "income" ? "income" : "expense"} onback={closeManage} /></Pushed
+    >
+  </div>
+{/if}
+
 <style>
   .composer {
     position: absolute;
@@ -383,6 +400,11 @@
   }
   button:active {
     opacity: 0.65;
+  }
+  .over {
+    position: absolute;
+    inset: 0;
+    z-index: 35;
   }
   header {
     display: grid;
