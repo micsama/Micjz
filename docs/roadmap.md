@@ -85,7 +85,7 @@ settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期
 
 所有表 `STRICT`，时间一律存 UTC、按东八区显示。完整表结构见 [表结构梳理](blueprints/single-source.md) 和 [账目蓝图](blueprints/entries.md)：每个事实只存一处，表之间用外键连。
 
-分类、账户、标签存数据库，命令行增删改，有账目引用的不能删；见 [分类进库](blueprints/categories-db.md)。提示词从 `prompt.txt` 加载。
+分类、账户、标签存数据库，网页或命令行增删改，有账目引用的不能删；见 [分类进库](blueprints/categories-db.md)。提示词从 `prompt.txt` 加载。
 
 识别规则（写进 prompt，服务器再校验）：
 
@@ -119,7 +119,7 @@ settings     (id=1, cycle_day, budget_cents)   单行用户设置：记账周期
 ### v2 能看能改
 
 - 极简网页：按记账周期列表、编辑、删除、CSV 导出。交互原型在 `web/`（假数据）。
-- 分类、账户、标签的网页管理（已在 SQLite，目前用命令行）。
+- 分类、账户、标签的网页管理，见 [网页分类、标签管理](blueprints/categories-web.md)。已实现（2026-11-17）。
 - 设置表：记账周期、每期预算，见 [设置表](blueprints/settings.md)。表已建（v4），网页读写待做。
 - 表结构 v5：账目不再依赖截图、加转账和平账、所有表改 `STRICT`，见 [账目蓝图](blueprints/entries.md)。已实现（2026-11-16）。
 - 表结构 v7：草稿和识别留存只认 ID、记账周期可设「上月 N 号起」、网页手填按 ID 防重，见 [表结构 v7](blueprints/schema-7.md)。已实现（2026-11-17）。

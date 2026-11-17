@@ -6,11 +6,10 @@
 
 ## 1. 范围
 
-本蓝图包括：登录、网页托管、读目录 / 账目 / 余额 / 设置 / 识别记录、记一笔、改、删、平账、账户管理、设置修改、CSV 导出。
+本蓝图包括：登录、网页托管、读目录 / 账目 / 余额 / 设置 / 识别记录、记一笔、改、删、平账、账户管理、设置修改、CSV 导出。分类、标签管理见 §6.3。
 
 不在本蓝图（之后单独写）：
 
-- **分类、标签的网页管理**：原型还没做，补完原型再定接口。在那之前仍用命令行。
 - **网页上「更新到最新版本」**：涉及进程自己重启，单独设计。这一版设置页只显示版本号。
 - **Face ID（Passkey）登录**：以后有空再看，这一版用密码。
 - **服务器推送**：不做，见 §3.4。
@@ -336,6 +335,17 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 | `POST /api/accounts/:id/adjust` | 见 §5.5 | | |
 
 排序复用 `catalog.rs` 的 `reorder`；增删改和命令行共用同一套校验函数。
+
+### 6.3 分类、标签
+
+契约和规则见 [网页分类、标签管理](categories-web.md)，这里只列接口：
+
+| 接口 | 成功 |
+|---|---|
+| `POST /api/categories`、`PUT /api/categories/:id`、`POST /api/categories/:id/move` | 201 / 200，`{ "categories": [...] }` 全部分类 |
+| `DELETE /api/categories/:id` | 204 |
+| `POST /api/tags`、`PUT /api/tags/:id` | 201 / 200，`{ "tags": [...] }` 全部标签 |
+| `DELETE /api/tags/:id` | 204 |
 
 ## 7. 设置
 

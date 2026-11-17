@@ -4,8 +4,10 @@
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import PrefEditor from "../../ui/PrefEditor.svelte";
   import PasswordEditor from "../../ui/PasswordEditor.svelte";
+  import CatalogPage from "../../ui/CatalogPage.svelte";
+  import Pushed from "../../ui/Pushed.svelte";
   import { holdKeyboard } from "../../ui/nav.svelte";
-  import { logout, settings } from "../../lib/store.svelte";
+  import { app, logout, settings } from "../../lib/store.svelte";
   import { EXPORT_URL } from "../../lib/api";
   import { cycleText, money } from "../../lib/format";
   import { setTheme, themeState } from "../../lib/theme.svelte";
@@ -17,6 +19,8 @@
   let editing = $state<"cycle" | "budget" | "password" | null>(null);
   let leaving = $state(false);
   let confirming = $state(false);
+  /** 推入的目录管理页。 */
+  let managing = $state<"categories" | "tags" | null>(null);
   onMount(loadUpdate);
 
   const progress = $derived.by(() => {
@@ -92,6 +96,18 @@
       <span class="value num">{settings.budget_cents === null ? "不设" : money(settings.budget_cents)}</span>
       <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
     </button>
+    <button class="row" onclick={() => (managing = "categories")}>
+      <span class="fi" style:--fc="var(--c3)"><Icon name="grid" size={18} weight={2.2} /></span>
+      <span class="label">分类</span>
+      <span class="value num">{app.catalog.categories.length} 个</span>
+      <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+    </button>
+    <button class="row" onclick={() => (managing = "tags")}>
+      <span class="fi" style:--fc="var(--c6)"><Icon name="tag" size={18} weight={2.2} /></span>
+      <span class="label">标签</span>
+      <span class="value num">{app.catalog.tags.length} 个</span>
+      <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+    </button>
   </div>
 
   <h3 class="cap">数据</h3>
@@ -165,7 +181,19 @@
     />{/if}
 </Sheet>
 
+{#if managing}
+  <!-- 盖住标签栏：页面自带返回。 -->
+  <div class="over">
+    <Pushed onback={() => (managing = null)}><CatalogPage which={managing} onback={() => (managing = null)} /></Pushed>
+  </div>
+{/if}
+
 <style>
+  .over {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+  }
   .page {
     position: absolute;
     inset: 0;

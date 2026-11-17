@@ -3,6 +3,8 @@
 //! 识别不出账户时取第一个账户。
 
 pub mod accounts;
+pub mod categories;
+pub mod tags;
 
 use std::collections::HashMap;
 
@@ -28,6 +30,7 @@ pub struct Catalog {
     pub tags: Vec<Tag>,
 }
 
+#[derive(serde::Serialize)]
 pub struct Tag {
     pub id: i64,
     pub name: String,
@@ -204,15 +207,7 @@ pub fn load(conn: &Connection) -> anyhow::Result<Catalog> {
         expense: Vec::new(),
         income: Vec::new(),
         accounts,
-        tags: conn
-            .prepare("SELECT id, name FROM tags ORDER BY id")?
-            .query_map([], |r| {
-                Ok(Tag {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                })
-            })?
-            .collect::<rusqlite::Result<_>>()?,
+        tags: tags::list(conn)?,
     };
     // 先读全部一级，再读二级，各自按优先级。
     let mut stmt = conn.prepare(
@@ -255,51 +250,6 @@ fn names(conn: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
     conn.prepare(&format!("SELECT name FROM {table} ORDER BY id"))?
         .query_map([], |r| r.get(0))?
         .collect()
-}
-
-fn insert_category(
-    tx: &Transaction<'_>,
-    kind: Kind,
-    parent: Option<i64>,
-    name: &str,
-    key: &str,
-) -> anyhow::Result<()> {
-    ensure!(
-        !key.is_empty()
-            && key
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
-        "key 须为小写英文、数字或下划线：{key}"
-    );
-    if let Some(owner) = tx
-        .query_row("SELECT name FROM categories WHERE key = ?1", [key], |r| {
-            r.get::<_, String>(0)
-        })
-        .optional()?
-    {
-        bail!("key {key} 已被「{owner}」使用");
-    }
-    let position = siblings(tx, kind, parent)?.len() + 1;
-    tx.execute(
-        "INSERT INTO categories (kind, parent_id, name, key, position) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            kind.as_str(),
-            parent,
-            check_name(name)?,
-            key,
-            position as i64
-        ],
-    )?;
-    Ok(())
-}
-
-/// 同类型、同父级的分类 id，按优先级。
-fn siblings(tx: &Transaction<'_>, kind: Kind, parent: Option<i64>) -> rusqlite::Result<Vec<i64>> {
-    tx.prepare(
-        "SELECT id FROM categories WHERE kind = ?1 AND parent_id IS ?2 ORDER BY position, id",
-    )?
-    .query_map(params![kind.as_str(), parent], |r| r.get(0))?
-    .collect()
 }
 
 pub fn account_ids(tx: &Transaction<'_>) -> rusqlite::Result<Vec<i64>> {
@@ -376,53 +326,49 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
         ["category", "list"] => list_categories(&tx)?,
         ["category", "add", kind, path, key] => {
             let kind = parse_kind(kind)?;
-            match path.split_once('/') {
-                None => insert_category(&tx, kind, None, path, key)?,
-                Some((parent, name)) => {
-                    let parent = category_id(&tx, kind, parent)?;
-                    insert_category(&tx, kind, Some(parent), name, key)?
-                }
+            let (parent_id, name) = match path.split_once('/') {
+                None => (None, *path),
+                Some((parent, name)) => (Some(category_id(&tx, kind, parent)?), name),
             };
+            categories::create(
+                &tx,
+                categories::Input {
+                    kind: Some(kind),
+                    parent_id,
+                    name: name.into(),
+                    key: Some(key.to_string()),
+                },
+            )?;
             format!("已添加分类 {path}（{key}）")
         }
         ["category", "rename", kind, path, new] => {
-            let id = category_id(&tx, parse_kind(kind)?, path)?;
-            tx.execute(
-                "UPDATE categories SET name = ?2 WHERE id = ?1",
-                params![id, check_name(new)?],
-            )?;
-            format!("已改名 {path} → {new}")
-        }
-        ["category", "rm", kind, path] => {
             let kind = parse_kind(kind)?;
             let id = category_id(&tx, kind, path)?;
-            let key: String =
-                tx.query_row("SELECT key FROM categories WHERE id = ?1", [id], |r| {
-                    r.get(0)
-                })?;
-            ensure!(key != fallback_key(kind), "{path} 是兜底分类，不能删");
-            let subs = count(&tx, "categories WHERE parent_id = ?1", id)?;
-            ensure!(subs == 0, "{path} 下还有 {subs} 个二级分类，先删它们");
-            let used = count(&tx, "entries WHERE category_id = ?1", id)?;
-            ensure!(used == 0, "{path} 下有 {used} 笔账，不能删");
-            tx.execute("DELETE FROM categories WHERE id = ?1", [id])?;
-            format!("已删除分类 {path}")
-        }
-        ["category", "move", kind, path, to] => {
-            let kind = parse_kind(kind)?;
-            let id = category_id(&tx, kind, path)?;
-            let parent: Option<i64> = tx.query_row(
+            let parent_id = tx.query_row(
                 "SELECT parent_id FROM categories WHERE id = ?1",
                 [id],
                 |r| r.get(0),
             )?;
-            reorder(
+            categories::update(
                 &tx,
-                "categories",
-                siblings(&tx, kind, parent)?,
                 id,
-                position(to)?,
+                categories::Input {
+                    kind: None,
+                    parent_id,
+                    name: new.to_string(),
+                    key: None,
+                },
             )?;
+            format!("已改名 {path} → {new}")
+        }
+        ["category", "rm", kind, path] => {
+            let id = category_id(&tx, parse_kind(kind)?, path)?;
+            categories::delete(&tx, id)?;
+            format!("已删除分类 {path}")
+        }
+        ["category", "move", kind, path, to] => {
+            let id = category_id(&tx, parse_kind(kind)?, path)?;
+            categories::move_to(&tx, id, position(to)?)?;
             format!("已移动 {path} 到第 {to} 位")
         }
         ["account", "list"] => list_accounts(&tx)?,
@@ -450,46 +396,31 @@ pub fn cli(conn: &mut Connection, args: &[String]) -> anyhow::Result<String> {
             reorder(&tx, "accounts", account_ids(&tx)?, id, position(to)?)?;
             format!("已移动 {name} 到第 {to} 位")
         }
-        [table @ ("account" | "tag"), rest @ ..] => {
-            let (table, used_sql) = match *table {
-                "account" => (
-                    "accounts",
-                    "entries WHERE ?1 IN (account_id, to_account_id)",
-                ),
-                _ => ("tags", "entry_tags WHERE tag_id = ?1"),
-            };
-            match rest {
-                ["list"] => names(&tx, table)?.join("\n"),
-                ["add", name] => {
-                    tx.execute(
-                        &format!("INSERT INTO {table} (name) VALUES (?1)"),
-                        [check_name(name)?],
-                    )
-                    .with_context(|| format!("{name} 已存在？"))?;
-                    format!("已添加 {name}")
-                }
-                ["rename", name, new] => {
-                    let id = name_id(&tx, table, name)?;
-                    tx.execute(
-                        &format!("UPDATE {table} SET name = ?2 WHERE id = ?1"),
-                        params![id, check_name(new)?],
-                    )
-                    .with_context(|| format!("{new} 已存在？"))?;
-                    format!("已改名 {name} → {new}")
-                }
-                ["rm", name] => {
-                    let id = name_id(&tx, table, name)?;
-                    if table == "accounts" {
-                        accounts::delete(&tx, id)?;
-                    } else {
-                        let used = count(&tx, used_sql, id)?;
-                        ensure!(used == 0, "{name} 被 {used} 笔账使用，不能删");
-                        tx.execute("DELETE FROM tags WHERE id = ?1", [id])?;
-                    }
-                    format!("已删除 {name}")
-                }
-                _ => bail!("{USAGE}"),
-            }
+        ["account", "rename", name, new] => {
+            let id = name_id(&tx, "accounts", name)?;
+            tx.execute(
+                "UPDATE accounts SET name = ?2 WHERE id = ?1",
+                params![id, check_name(new)?],
+            )
+            .with_context(|| format!("{new} 已存在？"))?;
+            format!("已改名 {name} → {new}")
+        }
+        ["account", "rm", name] => {
+            accounts::delete(&tx, name_id(&tx, "accounts", name)?)?;
+            format!("已删除 {name}")
+        }
+        ["tag", "list"] => names(&tx, "tags")?.join("\n"),
+        ["tag", "add", name] => {
+            tags::save(&tx, None, name)?;
+            format!("已添加 {name}")
+        }
+        ["tag", "rename", name, new] => {
+            tags::save(&tx, Some(name_id(&tx, "tags", name)?), new)?;
+            format!("已改名 {name} → {new}")
+        }
+        ["tag", "rm", name] => {
+            tags::delete(&tx, name_id(&tx, "tags", name)?)?;
+            format!("已删除 {name}")
         }
         _ => bail!("{USAGE}"),
     };
@@ -540,12 +471,6 @@ pub fn find_name(conn: &Connection, table: &str, name: &str) -> rusqlite::Result
         |r| r.get(0),
     )
     .optional()
-}
-
-fn count(tx: &Transaction<'_>, from_where: &str, id: i64) -> rusqlite::Result<i64> {
-    tx.query_row(&format!("SELECT count(*) FROM {from_where}"), [id], |r| {
-        r.get(0)
-    })
 }
 
 fn list_accounts(tx: &Transaction<'_>) -> anyhow::Result<String> {

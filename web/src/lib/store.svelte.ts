@@ -2,7 +2,7 @@
 // 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
 import { checkUpdated } from "./update.svelte";
-import { api, ApiError, type AccountInput, type EntryInput, type EntryPatch, type Settings } from "./api";
+import { api, ApiError, type AccountInput, type CategoryInput, type EntryInput, type EntryPatch, type Settings } from "./api";
 import { isYear, money, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
@@ -433,6 +433,56 @@ export async function removeAccount(id: number): Promise<string | null> {
   const i = list.findIndex((a) => a.id === id);
   if (i >= 0) list.splice(i, 1);
   toast(i === 0 && list.length ? `已删除，默认账户：${list[0].name}` : "已删除");
+  return null;
+}
+
+/** 同类型、同上级的分类，按优先级。 */
+export const siblingsOf = (c: Pick<Category, "kind" | "parent_id">) => app.catalog.categories.filter((s) => s.kind === c.kind && s.parent_id === c.parent_id);
+
+/** 同级内拖动排序：先在本地挪好，再以服务器的顺序为准。 */
+export async function moveCategory(c: Category, to: number) {
+  const sibs = siblingsOf(c).filter((s) => s.id !== c.id);
+  sibs.splice(to, 0, c);
+  let i = 0;
+  app.catalog.categories = app.catalog.categories.map((x) => (x.kind === c.kind && x.parent_id === c.parent_id ? sibs[i++] : x));
+  const r = await guard(api.moveCategory(c.id, to));
+  if (r) app.catalog.categories = r.categories;
+  else void reloadCatalog();
+}
+
+/** 新建（`id` 为空）或修改分类；失败返回给人看的原因。 */
+export async function saveCategory(id: number | null, input: CategoryInput): Promise<string | null> {
+  const r = await attempt(id === null ? api.addCategory(input) : api.putCategory(id, input));
+  if (r instanceof ApiError) return r.message;
+  app.catalog.categories = r.categories;
+  if (id === null) toast(`已添加 ${input.name.trim()}`);
+  return null;
+}
+
+/** 删除分类；有账目、有二级、兜底分类服务器不让删，返回原因。 */
+export async function removeCategory(id: number): Promise<string | null> {
+  const r = await attempt(api.deleteCategory(id));
+  if (r instanceof ApiError && r.status !== 404) return r.message;
+  app.catalog.categories = app.catalog.categories.filter((c) => c.id !== id);
+  toast("已删除");
+  return null;
+}
+
+/** 新建（`id` 为空）或改名标签；失败返回原因。 */
+export async function saveTag(id: number | null, name: string): Promise<string | null> {
+  const r = await attempt(id === null ? api.addTag(name) : api.putTag(id, name));
+  if (r instanceof ApiError) return r.message;
+  app.catalog.tags = r.tags;
+  if (id === null) toast(`已添加 ${name.trim()}`);
+  return null;
+}
+
+/** 删除标签；还有账目在用时返回原因。 */
+export async function removeTag(id: number): Promise<string | null> {
+  const r = await attempt(api.deleteTag(id));
+  if (r instanceof ApiError && r.status !== 404) return r.message;
+  app.catalog.tags = app.catalog.tags.filter((t) => t.id !== id);
+  toast("已删除");
   return null;
 }
 

@@ -1,5 +1,5 @@
 // 和服务器对话的唯一出口：契约见 docs/blueprints/web-api.md。只管收发和把失败变成 ApiError，失败后怎么办由 store 决定。
-import type { Account, Catalog, Entry, Recognition } from "./types";
+import type { Account, Catalog, Category, Entry, Recognition, Tag } from "./types";
 
 /** 服务器给的失败；`status` 为 0 是没连上。`message` 是给人看的那句，直接显示。 */
 export class ApiError extends Error {
@@ -72,6 +72,8 @@ export function newEntryId(): string {
 /** 改账目：只放要改的字段；`merchant`、`note` 给 `null` 是清空。 */
 export type EntryPatch = Partial<EntryInput>;
 export type AccountInput = Omit<Account, "id">;
+/** 新建、修改分类；`kind` 只在新建时给，`key` 为空时新建自动生成、修改保持原值。 */
+export type CategoryInput = Omit<Category, "id" | "kind" | "key"> & { kind?: Category["kind"]; key: string };
 
 const enc = encodeURIComponent;
 
@@ -101,6 +103,15 @@ export const api = {
   putAccount: (id: number, a: AccountInput) => call<Account>("PUT", `accounts/${id}`, a),
   deleteAccount: (id: number) => call<void>("DELETE", `accounts/${id}`),
   moveAccount: (id: number, to: number) => call<{ accounts: Account[] }>("POST", `accounts/${id}/move`, { to }),
+
+  addCategory: (c: CategoryInput) => call<{ categories: Category[] }>("POST", "categories", c),
+  putCategory: (id: number, c: CategoryInput) => call<{ categories: Category[] }>("PUT", `categories/${id}`, c),
+  deleteCategory: (id: number) => call<void>("DELETE", `categories/${id}`),
+  moveCategory: (id: number, to: number) => call<{ categories: Category[] }>("POST", `categories/${id}/move`, { to }),
+
+  addTag: (name: string) => call<{ tags: Tag[] }>("POST", "tags", { name }),
+  putTag: (id: number, name: string) => call<{ tags: Tag[] }>("PUT", `tags/${id}`, { name }),
+  deleteTag: (id: number) => call<void>("DELETE", `tags/${id}`),
 
   updateStatus: () => call<UpdateStatus>("GET", "update"),
   /** 202 没有正文，不能走 `call` 解析 JSON。 */

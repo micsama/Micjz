@@ -805,3 +805,194 @@ async fn web_recognition_export_and_shortcut_share_entries() {
         404
     );
 }
+
+#[tokio::test]
+async fn web_categories_and_tags() {
+    let s = server().await;
+    let find = |list: &Value, id: &Value| {
+        list["categories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == *id)
+            .cloned()
+            .unwrap()
+    };
+    let (status, list) = s
+        .web(
+            POST,
+            "categories",
+            json!({"kind":"expense","parent_id":null,"name":" 📚 学习 ","key":"study"}),
+        )
+        .await;
+    assert_eq!(status, 201, "{list}");
+    let top = list["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "study")
+        .unwrap()["id"]
+        .clone();
+    assert_eq!(find(&list, &top)["name"], "📚 学习");
+    let (status, list) = s
+        .web(
+            POST,
+            "categories",
+            json!({"kind":"expense","parent_id":top,"name":"书","key":""}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    let book = list["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "书")
+        .unwrap()
+        .clone();
+    assert_eq!(book["key"], format!("c{}", book["id"]), "没给 key 就生成");
+    for (body, status) in [
+        (json!({"kind":"expense","parent_id":top,"name":"书"}), 409),
+        (
+            json!({"kind":"expense","parent_id":null,"name":"x","key":"study"}),
+            409,
+        ),
+        (
+            json!({"kind":"expense","parent_id":null,"name":"x","key":"Bad"}),
+            400,
+        ),
+        (json!({"kind":"expense","parent_id":null,"name":"a/b"}), 400),
+        (json!({"kind":"income","parent_id":top,"name":"x"}), 409),
+        (
+            json!({"kind":"expense","parent_id":book["id"],"name":"x"}),
+            409,
+        ),
+        (json!({"parent_id":null,"name":"x"}), 400),
+    ] {
+        assert_eq!(
+            s.web(POST, "categories", body.clone()).await.0,
+            status,
+            "{body}"
+        );
+    }
+
+    let path = format!("categories/{}", book["id"]);
+    let (status, list) = s
+        .web(
+            PUT,
+            &path,
+            json!({"parent_id":book["parent_id"],"name":"📖 书","key":"books"}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(find(&list, &book["id"])["key"], "books");
+    let (status, list) = s
+        .web(PUT, &path, json!({"parent_id":null,"name":"📖 书"}))
+        .await;
+    assert_eq!(status, 200);
+    assert!(find(&list, &book["id"])["parent_id"].is_null(), "挪成一级");
+    assert_eq!(find(&list, &book["id"])["key"], "books", "key 为空保持原值");
+    let (_, list) = s.web(POST, &format!("{path}/move"), json!({"to":0})).await;
+    assert_eq!(
+        list["categories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["kind"] == "expense")
+            .unwrap()["id"],
+        book["id"]
+    );
+    s.web(PUT, &path, json!({"parent_id":top,"name":"📖 书"}))
+        .await;
+    let other = list["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "other")
+        .unwrap()["id"]
+        .clone();
+    assert_eq!(
+        s.web(
+            PUT,
+            &format!("categories/{top}"),
+            json!({"parent_id":other,"name":"📚 学习"})
+        )
+        .await
+        .0,
+        409,
+        "带着二级不能挪"
+    );
+    let opath = format!("categories/{other}");
+    assert_eq!(
+        s.web(
+            PUT,
+            &opath,
+            json!({"parent_id":null,"name":"杂项","key":"misc"})
+        )
+        .await
+        .0,
+        409
+    );
+    assert_eq!(
+        s.web(PUT, &opath, json!({"parent_id":null,"name":"杂项"}))
+            .await
+            .0,
+        200
+    );
+    assert_eq!(s.send(s.api(DELETE, &opath)).await.0, 409);
+    assert_eq!(
+        s.web(
+            PUT,
+            "categories/99999",
+            json!({"parent_id":null,"name":"x"})
+        )
+        .await
+        .0,
+        404
+    );
+
+    // 有账目在用不能删；有二级先删二级。
+    let c = s.catalog().await;
+    let mut e = expense(&c);
+    e["category_id"] = book["id"].clone();
+    e["tag_ids"] = json!([]);
+    assert_eq!(s.web(POST, "entries", e.clone()).await.0, 201);
+    assert_eq!(s.send(s.api(DELETE, &path)).await.0, 409);
+    assert_eq!(
+        s.send(s.api(DELETE, &format!("categories/{top}"))).await.0,
+        409
+    );
+    s.api(DELETE, &format!("entries/{}", e["id"].as_str().unwrap()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(s.api(DELETE, &path).send().await.unwrap().status(), 204);
+    assert_eq!(
+        s.api(DELETE, &format!("categories/{top}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+
+    let (status, tags) = s.web(POST, "tags", json!({"name":" 出差 "})).await;
+    assert_eq!(status, 201);
+    let tag = tags["tags"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(tag["name"], "出差");
+    assert_eq!(s.web(POST, "tags", json!({"name":"出差"})).await.0, 409);
+    let tpath = format!("tags/{}", tag["id"]);
+    let (status, tags) = s.web(PUT, &tpath, json!({"name":"公干"})).await;
+    assert_eq!(status, 200);
+    assert!(
+        tags["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "公干")
+    );
+    let mut e = expense(&c);
+    e["tag_ids"] = json!([tag["id"]]);
+    assert_eq!(s.web(POST, "entries", e).await.0, 201);
+    assert_eq!(s.send(s.api(DELETE, &tpath)).await.0, 409);
+    assert_eq!(s.web(PUT, "tags/99999", json!({"name":"x"})).await.0, 404);
+}

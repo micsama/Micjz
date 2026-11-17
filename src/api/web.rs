@@ -1,6 +1,9 @@
 //! 网页协议边界：JSON、Cookie、静态资源；业务写入复用数据库事务。
 use super::*;
-use crate::catalog::accounts::{self, Account, AccountInput};
+use crate::catalog::{
+    accounts::{self, Account, AccountInput},
+    categories, tags,
+};
 use crate::{
     catalog,
     db::{
@@ -40,6 +43,14 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         )
         .route("/api/accounts/{id}/move", post(move_account))
         .route("/api/accounts/{id}/adjust", post(adjust))
+        .route("/api/categories", post(create_category))
+        .route(
+            "/api/categories/{id}",
+            put(replace_category).delete(delete_category),
+        )
+        .route("/api/categories/{id}/move", post(move_category))
+        .route("/api/tags", post(create_tag))
+        .route("/api/tags/{id}", put(rename_tag).delete(delete_tag))
         .route("/api/recognitions/{id}", get(recognition))
         .route("/api/recognitions/{id}/image", get(image))
         .route("/api/export.csv", get(export))
@@ -132,28 +143,11 @@ pub(super) async fn static_file(req: Request) -> Response {
 
 async fn catalog_handler(State(s): State<Arc<AppState>>) -> Result<Json<Value>, WebError> {
     let conn = s.db.conn();
-    let categories = conn
-        .prepare(
-            "SELECT id, kind, parent_id, name, key FROM categories
-         ORDER BY parent_id IS NOT NULL, parent_id, position, id",
-        )?
-        .query_map([], |r| {
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?,
-                "parent_id": r.get::<_, Option<i64>>(2)?,
-                "name": r.get::<_, String>(3)?, "key": r.get::<_, String>(4)?,
-            }))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let tags = conn
-        .prepare("SELECT id,name FROM tags ORDER BY id")?
-        .query_map([], |r| {
-            Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?}))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(Json(
-        json!({"categories":categories,"accounts":accounts::list(&conn)?,"tags":tags}),
-    ))
+    Ok(Json(json!({
+        "categories": categories::list(&conn)?,
+        "accounts": accounts::list(&conn)?,
+        "tags": tags::list(&conn)?,
+    })))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -410,6 +404,98 @@ async fn adjust(
     };
     tx.commit()?;
     Ok(Json(json!({"entry":entry,"balance_cents":v.balance_cents})))
+}
+/// 目录写操作：一个事务里改完，返回改后的整张列表。
+fn edit_catalog<T>(
+    s: &AppState,
+    f: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<(), Error>,
+    list: impl FnOnce(&Connection) -> Result<T, Error>,
+) -> Result<T, WebError> {
+    let mut conn = s.db.conn();
+    let tx = conn.transaction()?;
+    f(&tx)?;
+    let result = list(&tx)?;
+    tx.commit()?;
+    Ok(result)
+}
+fn category_list(conn: &Connection) -> Result<Value, Error> {
+    Ok(json!({ "categories": categories::list(conn)? }))
+}
+fn tag_list(conn: &Connection) -> Result<Value, Error> {
+    Ok(json!({ "tags": tags::list(conn)? }))
+}
+async fn create_category(
+    State(s): State<Arc<AppState>>,
+    v: Result<Json<categories::Input>, JsonRejection>,
+) -> Result<Response, WebError> {
+    let v = body(v)?;
+    let list = edit_catalog(&s, |tx| categories::create(tx, v).map(drop), category_list)?;
+    Ok((StatusCode::CREATED, Json(list)).into_response())
+}
+async fn replace_category(
+    State(s): State<Arc<AppState>>,
+    p: Result<Param<i64>, axum::extract::rejection::PathRejection>,
+    v: Result<Json<categories::Input>, JsonRejection>,
+) -> Result<Json<Value>, WebError> {
+    let (id, v) = (path_id(p)?, body(v)?);
+    Ok(Json(edit_catalog(
+        &s,
+        |tx| categories::update(tx, id, v),
+        category_list,
+    )?))
+}
+async fn delete_category(
+    State(s): State<Arc<AppState>>,
+    p: Result<Param<i64>, axum::extract::rejection::PathRejection>,
+) -> Result<StatusCode, WebError> {
+    let id = path_id(p)?;
+    edit_catalog(&s, |tx| categories::delete(tx, id), |_| Ok(()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn move_category(
+    State(s): State<Arc<AppState>>,
+    p: Result<Param<i64>, axum::extract::rejection::PathRejection>,
+    v: Result<Json<Move>, JsonRejection>,
+) -> Result<Json<Value>, WebError> {
+    let (id, v) = (path_id(p)?, body(v)?);
+    Ok(Json(edit_catalog(
+        &s,
+        |tx| categories::move_to(tx, id, v.to.max(0) as usize),
+        category_list,
+    )?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagInput {
+    name: String,
+}
+async fn create_tag(
+    State(s): State<Arc<AppState>>,
+    v: Result<Json<TagInput>, JsonRejection>,
+) -> Result<Response, WebError> {
+    let v = body(v)?;
+    let list = edit_catalog(&s, |tx| tags::save(tx, None, &v.name).map(drop), tag_list)?;
+    Ok((StatusCode::CREATED, Json(list)).into_response())
+}
+async fn rename_tag(
+    State(s): State<Arc<AppState>>,
+    p: Result<Param<i64>, axum::extract::rejection::PathRejection>,
+    v: Result<Json<TagInput>, JsonRejection>,
+) -> Result<Json<Value>, WebError> {
+    let (id, v) = (path_id(p)?, body(v)?);
+    Ok(Json(edit_catalog(
+        &s,
+        |tx| tags::save(tx, Some(id), &v.name).map(drop),
+        tag_list,
+    )?))
+}
+async fn delete_tag(
+    State(s): State<Arc<AppState>>,
+    p: Result<Param<i64>, axum::extract::rejection::PathRejection>,
+) -> Result<StatusCode, WebError> {
+    let id = path_id(p)?;
+    edit_catalog(&s, |tx| tags::delete(tx, id), |_| Ok(()))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn recognition(
     State(s): State<Arc<AppState>>,

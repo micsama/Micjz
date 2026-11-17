@@ -1,6 +1,6 @@
 // 假后端：照 docs/blueprints/web-api.md 在内存里实现 /api，`bun run demo` 不连真服务器时用。
 // 只为前端开发和截图验收，规则按契约写但不求穷尽；以真后端为准。登录用 dzmfg / demo。
-import type { Account, Catalog, Entry, FlowKind, Kind } from "../src/lib/types";
+import type { Account, Catalog, Category, Entry, FlowKind, Kind } from "../src/lib/types";
 import { effect } from "../src/lib/kinds";
 import { CATALOG, seed, stamp, type Shot } from "./seed";
 
@@ -87,6 +87,44 @@ export function createMock(): (req: Request) => Promise<Response | null> {
     const card = b.card as Account["card"];
     if (card && !/^\d{4,}$/.test(card.number.replace(/\s/g, ""))) throw new Fail(400, "卡号至少 4 位数字");
     return { name, brand, card: card ? { type: card.type, number: card.number.replace(/\s/g, "") } : null };
+  }
+
+  const nameOf = (v: unknown) => {
+    const name = typeof v === "string" ? v.trim() : "";
+    if (!name || /[/\n]/.test(name)) throw new Fail(400, "名称不能为空，也不能含 / 和换行");
+    return name;
+  };
+  const category = (id: number) => {
+    const c = catalog.categories.find((c) => c.id === id);
+    if (!c) throw new Fail(404, "分类不存在");
+    return c;
+  };
+  const isFallback = (c: Category) => c.key === (c.kind === "expense" ? "other" : "other_in");
+  const sameGroup = (a: Category, b: Pick<Category, "kind" | "parent_id">) => a.kind === b.kind && a.parent_id === b.parent_id;
+  /** 分类的整体写入，新建、修改共用；新建排同级末尾（数组顺序即优先级）。 */
+  function putCategory(b: Record<string, unknown>, old?: Category) {
+    const kind = old?.kind ?? (b.kind as FlowKind);
+    if (kind !== "expense" && kind !== "income") throw new Fail(400, "新建分类须给 kind");
+    if (old && b.kind !== undefined && b.kind !== kind) throw new Fail(400, "分类的类型不能改");
+    const name = nameOf(b.name);
+    const parent_id = (b.parent_id as number | null) ?? null;
+    let key = typeof b.key === "string" ? b.key.trim() : "";
+    if (key && !/^[a-z0-9_]+$/.test(key)) throw new Fail(400, `key 须为小写英文、数字或下划线：${key}`);
+    if (!key && old) key = old.key;
+    if (old && isFallback(old) && (key !== old.key || parent_id !== null)) throw new Fail(409, "兜底分类必须保持一级，key 不能改");
+    if (parent_id !== (old?.parent_id ?? null) && parent_id !== null) {
+      const p = catalog.categories.find((c) => c.id === parent_id);
+      if (!p || p.kind !== kind || p.parent_id !== null || p === old) throw new Fail(409, "上级须是同类型的一级分类");
+      const subs = old ? catalog.categories.filter((c) => c.parent_id === old.id).length : 0;
+      if (subs) throw new Fail(409, `下面还有 ${subs} 个二级，不能挪到别的一级下面`);
+    }
+    if (catalog.categories.some((c) => c !== old && sameGroup(c, { kind, parent_id }) && c.name === name)) throw new Fail(409, `同级已有分类「${name}」`);
+    const owner = key && catalog.categories.find((c) => c !== old && c.key === key);
+    if (owner) throw new Fail(409, `key ${key} 已被「${owner.name}」使用`);
+    if (old && old.parent_id === parent_id) return Object.assign(old, { name, key });
+    const id = old?.id ?? Math.max(0, ...catalog.categories.map((c) => c.id)) + 1;
+    const next: Category = { id, kind, parent_id, name, key: key || `c${id}` };
+    catalog.categories = [...catalog.categories.filter((c) => c !== old), next];
   }
 
   const fullSettings = () => ({ ...settings, version: "mock", entry_count: entries.length });
@@ -208,6 +246,48 @@ export function createMock(): (req: Request) => Promise<Response | null> {
         list.splice(Math.max(0, Math.min(list.length, b.to as number)), 0, a);
         catalog.accounts = list;
         return json(200, { accounts: list });
+      }
+      case "POST categories":
+        putCategory(b);
+        return json(201, { categories: catalog.categories });
+      case "PUT categories/:id":
+        putCategory(b, category(Number(id)));
+        return json(200, { categories: catalog.categories });
+      case "DELETE categories/:id": {
+        const c = category(Number(id));
+        if (isFallback(c)) throw new Fail(409, "兜底分类不能删");
+        const subs = catalog.categories.filter((x) => x.parent_id === c.id).length;
+        if (subs) throw new Fail(409, `下面还有 ${subs} 个二级，先删它们`);
+        const used = entries.filter((e) => e.category_id === c.id).length;
+        if (used) throw new Fail(409, `还有 ${used} 笔账目在用，不能删除`);
+        catalog.categories = catalog.categories.filter((x) => x !== c);
+        return json(204);
+      }
+      case "POST categories/:id/move": {
+        const c = category(Number(id));
+        const sibs = catalog.categories.filter((x) => x !== c && sameGroup(x, c));
+        sibs.splice(Math.max(0, Math.min(sibs.length, b.to as number)), 0, c);
+        let i = 0;
+        catalog.categories = catalog.categories.map((x) => (sameGroup(x, c) ? sibs[i++] : x));
+        return json(200, { categories: catalog.categories });
+      }
+      case "POST tags":
+      case "PUT tags/:id": {
+        const name = nameOf(b.name);
+        const t = id === undefined ? undefined : catalog.tags.find((t) => t.id === Number(id));
+        if (id !== undefined && !t) throw new Fail(404, "标签不存在");
+        if (catalog.tags.some((x) => x !== t && x.name === name)) throw new Fail(409, `已经有标签「${name}」`);
+        if (t) t.name = name;
+        else catalog.tags.push({ id: Math.max(0, ...catalog.tags.map((t) => t.id)) + 1, name });
+        return json(t ? 200 : 201, { tags: catalog.tags });
+      }
+      case "DELETE tags/:id": {
+        const t = catalog.tags.find((t) => t.id === Number(id));
+        if (!t) throw new Fail(404, "标签不存在");
+        const used = entries.filter((e) => e.tag_ids.includes(t.id)).length;
+        if (used) throw new Fail(409, `还有 ${used} 笔账目在用，不能删除`);
+        catalog.tags = catalog.tags.filter((x) => x !== t);
+        return json(204);
       }
       case "POST accounts/:id/adjust": {
         const a = account(Number(id));
