@@ -103,7 +103,8 @@ export const api = {
   moveAccount: (id: number, to: number) => call<{ accounts: Account[] }>("POST", `accounts/${id}/move`, { to }),
 
   updateStatus: () => call<UpdateStatus>("GET", "update"),
-  startUpdate: () => call<void>("POST", "update"),
+  /** 202 没有正文，不能走 `call` 解析 JSON。 */
+  startUpdate: async () => void (await send("POST", "update")),
 
   putSettings: (s: Pick<Settings, "cycle_day" | "budget_cents">) => call<Settings>("PUT", "settings", s),
 };
