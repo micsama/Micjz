@@ -84,15 +84,15 @@
   .stage {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-items: center;
     touch-action: none;
     padding: calc(env(safe-area-inset-top) + 50px) 0 calc(env(safe-area-inset-bottom) + 20px);
   }
+  /* 网格里百分比 max-height 在 Safari 不生效，长截图会撑出屏幕；改成铺满舞台按比例缩放。 */
   img {
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 6px;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     user-select: none;
     -webkit-user-drag: none;
   }
