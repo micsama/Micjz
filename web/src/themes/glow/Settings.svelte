@@ -19,25 +19,6 @@
   let confirming = $state(false);
   onMount(loadUpdate);
 
-  // 临时：查主屏底部留空，查完删。
-  let viewport = $state("");
-  onMount(() => {
-    const probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;top:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)";
-    document.body.append(probe);
-    const cs = getComputedStyle(probe);
-    const app = document.getElementById("app")!.getBoundingClientRect();
-    viewport = [
-      `screen ${screen.width}×${screen.height}`,
-      `inner ${innerWidth}×${innerHeight} outer ${outerHeight}`,
-      `vv ${visualViewport?.height} html ${document.documentElement.clientHeight}`,
-      `app ${app.top}~${app.bottom}`,
-      `safe ${cs.paddingTop} / ${cs.paddingBottom}`,
-      `standalone ${matchMedia("(display-mode: standalone)").matches} ${(navigator as { standalone?: boolean }).standalone}`,
-    ].join("\n");
-    probe.remove();
-  });
-
   const progress = $derived.by(() => {
     const s = update.status;
     if (update.error) return update.error;
@@ -133,7 +114,6 @@
         <button class="update" disabled={busy} onclick={() => (confirming = true)}>更新</button>
       {/if}
     </div>
-    <div class="row progress"><pre>{viewport}</pre></div>
     {#if progress}
       <div class="row progress">
         <span class:bad={update.error || update.status?.state === "failed"}>{progress}</span>
