@@ -216,13 +216,7 @@ impl Db {
                 [draft_id],
                 |r| {
                     let outcome: String = r.get(0)?;
-                    let outcome = Outcome::parse(&outcome).ok_or_else(|| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            0,
-                            rusqlite::types::Type::Text,
-                            format!("未知识别结果：{outcome}").into(),
-                        )
-                    })?;
+                    let outcome = Outcome::parse(&outcome).expect("CHECK 约束了取值");
                     Ok((outcome, r.get(1)?))
                 },
             )

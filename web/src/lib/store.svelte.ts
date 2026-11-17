@@ -92,10 +92,13 @@ async function reloadCatalog() {
   if (!(c instanceof ApiError)) app.catalog = c;
 }
 
+type Balances = Awaited<ReturnType<typeof api.balances>>;
+const setBalances = (b: Balances) => (app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents])));
+
 /** 写之后余额、笔数会变，从服务器重取。 */
 async function refreshTotals() {
   const [b, s] = await Promise.all([attempt(api.balances()), attempt(api.settings())]);
-  if (!(b instanceof ApiError)) app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents]));
+  if (!(b instanceof ApiError)) setBalances(b);
   if (!(s instanceof ApiError)) Object.assign(settings, s);
 }
 
@@ -112,7 +115,7 @@ export async function boot() {
   Object.assign(settings, s);
   const updated = checkUpdated(settings.version);
   if (updated) toast(updated);
-  app.balances = Object.fromEntries((b as Awaited<ReturnType<typeof api.balances>>).balances.map((x) => [x.account_id, x.balance_cents]));
+  setBalances(b as Balances);
   app.period = currentPeriod();
   following = true;
   const got = await Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]);

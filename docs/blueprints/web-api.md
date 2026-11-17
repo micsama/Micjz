@@ -289,7 +289,7 @@ CREATE TABLE web_admin (
 { "balance_cents": 123456, "occurred_at": "2026-11-17T04:30:00.000Z" }
 ```
 
-`balance_cents` 是用户输入的**实际余额**，可正可负可为 0。`occurred_at` 可省略，省略用服务器当前时间。
+`balance_cents` 是用户输入的**实际余额**，可正可负可为 0。`occurred_at` 可省略或为 `null`，用服务器当前时间。
 
 服务器在**同一个事务**里：
 

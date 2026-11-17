@@ -353,8 +353,7 @@ async fn move_account(
     let tx = conn.transaction()?;
     accounts::require(&tx, id)?;
     let ids = catalog::account_ids(&tx)?;
-    let to = v.to.clamp(0, ids.len() as i64) as usize;
-    catalog::reorder(&tx, "accounts", ids, id, to)?;
+    catalog::reorder(&tx, "accounts", ids, id, v.to.max(0) as usize)?;
     let result = accounts::list(&tx)?;
     tx.commit()?;
     Ok(Json(json!({"accounts":result})))
@@ -363,11 +362,8 @@ async fn move_account(
 #[serde(deny_unknown_fields)]
 struct Adjust {
     balance_cents: i64,
-    #[serde(default, deserialize_with = "present_time")]
+    #[serde(default)]
     occurred_at: Option<String>,
-}
-fn present_time<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    String::deserialize(d).map(Some)
 }
 async fn adjust(
     State(s): State<Arc<AppState>>,

@@ -227,7 +227,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Entry>> {
                     "income" => EntryKind::Income,
                     "transfer" => EntryKind::Transfer,
                     "adjust" => EntryKind::Adjust,
-                    _ => return Err(rusqlite::Error::InvalidQuery),
+                    _ => unreachable!("CHECK 约束了取值"),
                 };
                 Ok(Entry {
                     id: r.get(0)?,
