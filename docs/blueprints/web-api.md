@@ -365,6 +365,10 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 
 前端只放一个链接：`<a href="api/export.csv" download>`。
 
+## 8.1 一键更新
+
+`GET /api/update`、`POST /api/update`，见 [一键更新](self-update.md)。
+
 ## 9. 后端验收
 
 - `src/api/tests.rs` 补接口功能测试（临时库），至少覆盖：登录成功 204、密码错 401、没设密码 409、第 11 次失败 429；无 Cookie、签名被改、已过期 401，超过 1 天的 Cookie 被续期；改密码后旧 Cookie 401、新 Cookie 可用；`/api/*` 带 Bearer 401；跨站写请求 403；记一笔三种类型和各自的 400；改类型的规则；PATCH 的 `null` 与不出现；删除后再删 404；平账的差额和差额为 0；账户重名、在用、最后一个不能删；`move` 后顺序；`/step` 确认后 `GET /api/entries` 能看到，且走的是同一写入函数。

@@ -4,6 +4,7 @@ mod catalog;
 mod db;
 mod flow;
 mod recognize;
+mod update;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -79,7 +80,13 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // 只有经 build.sh run|start 启动才有仓库路径，才能一键更新。
+    let updater = std::env::var_os("MICJZ_REPO").map(|repo| {
+        let config = std::path::absolute(&path).expect("配置路径已读取成功");
+        Arc::new(update::Updater::new(repo.into(), config))
+    });
     let state = api::AppState {
+        updater: updater.clone(),
         token: config.token,
         login_limit: Default::default(),
         recognizer,
@@ -94,7 +101,20 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("监听 {}", config.listen))?;
     tracing::info!(listen = %config.listen, db = %config.db_path.display(), "micjz 已启动");
+    let watch = updater.clone();
+    let restart = async move {
+        match &watch {
+            Some(u) => u.restart.notified().await,
+            None => std::future::pending().await,
+        }
+    };
     axum::serve(listener, api::router(Arc::new(state)))
+        .with_graceful_shutdown(restart)
         .await
-        .context("HTTP 服务退出")
+        .context("HTTP 服务退出")?;
+    // 只有更新成功才会走到这里：和手动更新同一条路，备份、转换后启动新版本。
+    let mut start = updater.expect("只有更新会停服").start_command();
+    tracing::info!(command = ?start, "正在重启");
+    let error = std::os::unix::process::CommandExt::exec(&mut start);
+    Err(anyhow::anyhow!("重启失败：{error}"))
 }

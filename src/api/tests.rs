@@ -46,6 +46,7 @@ async fn server() -> Server {
         recognizer: Recognizer::Mock,
         db,
         images_dir: images_dir.clone(),
+        updater: None,
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -709,6 +710,13 @@ async fn web_accounts_adjust_settings() {
     }
     assert!(settings["budget_cents"].is_null());
     assert_eq!(settings["entry_count"], 0);
+
+    // 没经 build.sh 启动：更新不可用。
+    assert_eq!(
+        s.web(GET, "update", Value::Null).await,
+        (200, json!({"state":"unavailable"}))
+    );
+    assert_eq!(s.web(POST, "update", Value::Null).await.0, 503);
 }
 
 #[tokio::test]

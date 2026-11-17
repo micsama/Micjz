@@ -118,6 +118,8 @@ export function createMock(): (req: Request) => Promise<Response | null> {
         return json(200, { balances: catalog.accounts.map((a) => ({ account_id: a.id, balance_cents: balance(a.id) })) });
       case "GET settings":
         return json(200, fullSettings());
+      case "GET update":
+        return json(200, { state: "unavailable" });
       case "PUT settings": {
         const day = b.cycle_day as number;
         const budget = b.budget_cents as number | null;

@@ -1,6 +1,7 @@
 // 页面状态和所有操作；主题只负责展示，读写服务器都走这里。
 // 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
+import { checkUpdated } from "./update.svelte";
 import { api, ApiError, type AccountInput, type EntryInput, type EntryPatch, type Settings } from "./api";
 import { isYear, money, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
@@ -109,6 +110,8 @@ export async function boot() {
   }
   app.catalog = c as Catalog;
   Object.assign(settings, s);
+  const updated = checkUpdated(settings.version);
+  if (updated) toast(updated);
   app.balances = Object.fromEntries((b as Awaited<ReturnType<typeof api.balances>>).balances.map((x) => [x.account_id, x.balance_cents]));
   app.period = currentPeriod();
   following = true;

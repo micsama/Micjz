@@ -10,10 +10,41 @@
   import { cycleText, money } from "../../lib/format";
   import { setTheme, themeState } from "../../lib/theme.svelte";
   import { THEMES } from "../index";
+  import { loadUpdate, startUpdate, update } from "../../lib/update.svelte";
+  import { onMount } from "svelte";
 
   let collapsed = $state(false);
   let editing = $state<"cycle" | "budget" | "password" | null>(null);
   let leaving = $state(false);
+  let confirming = $state(false);
+  onMount(loadUpdate);
+
+  const progress = $derived.by(() => {
+    const s = update.status;
+    if (update.error) return update.error;
+    switch (s?.state) {
+      case "checking":
+        return "检查中…";
+      case "pulling":
+        return `拉取代码（第 ${s.attempt}/5 次）…`;
+      case "building":
+        return `构建 ${s.to}，要几分钟…`;
+      case "restarting":
+        return "重启中…";
+      case "up_to_date":
+        return `已是最新（${s.commit}）`;
+      case "failed":
+        return `更新失败：${s.error}`;
+      default:
+        return "";
+    }
+  });
+  const busy = $derived(!!update.status && ["checking", "pulling", "building", "restarting"].includes(update.status.state));
+  const tail = $derived(
+    update.status && "output" in update.status && (busy || update.status.state === "failed")
+      ? update.status.output.trimEnd().split("\n").slice(-8).join("\n")
+      : "",
+  );
 </script>
 
 <div class="page" onscroll={(e) => (collapsed = e.currentTarget.scrollTop > 46)}>
@@ -79,7 +110,16 @@
       <span class="fi" style:--fc="var(--c1)"><Icon name="gear" size={18} weight={2.2} /></span>
       <span class="label">版本</span>
       <span class="value num">{settings.version}</span>
+      {#if update.status && update.status.state !== "unavailable"}
+        <button class="update" disabled={busy} onclick={() => (confirming = true)}>更新</button>
+      {/if}
     </div>
+    {#if progress}
+      <div class="row progress">
+        <span class:bad={update.error || update.status?.state === "failed"}>{progress}</span>
+        {#if tail}<pre>{tail}</pre>{/if}
+      </div>
+    {/if}
   </div>
 
   <h3 class="cap">账号</h3>
@@ -109,6 +149,13 @@
   title="退出后这台设备要重新输入密码"
   actions={[{ label: "退出登录", danger: true, run: logout }]}
   oncancel={() => (leaving = false)}
+/>
+
+<ActionSheet
+  open={confirming}
+  title="拉取最新代码并重新构建，成功后服务会重启几秒"
+  actions={[{ label: "更新", run: startUpdate }]}
+  oncancel={() => (confirming = false)}
 />
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
@@ -336,6 +383,41 @@
   .center {
     justify-content: center;
     color: var(--red);
+  }
+  .update {
+    flex: none;
+    padding: 5px 12px;
+    border: 0;
+    border-radius: 99px;
+    background: var(--press);
+    color: var(--tint);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .update:disabled {
+    opacity: 0.4;
+  }
+  .progress {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--label2);
+  }
+  .progress .bad {
+    color: var(--red);
+  }
+  .progress pre {
+    margin: 0;
+    max-height: 9em;
+    overflow: auto;
+    font-size: 11px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 100px);

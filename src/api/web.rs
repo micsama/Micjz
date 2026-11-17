@@ -43,6 +43,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/api/recognitions/{id}", get(recognition))
         .route("/api/recognitions/{id}/image", get(image))
         .route("/api/export.csv", get(export))
+        .route("/api/update", get(update_status).post(start_update))
 }
 
 pub(super) struct WebError(pub(super) StatusCode, pub(super) String);
@@ -586,4 +587,24 @@ async fn export(State(s): State<Arc<AppState>>) -> Result<Response, WebError> {
         csv,
     )
         .into_response())
+}
+
+async fn update_status(State(s): State<Arc<AppState>>) -> Response {
+    let no_store = [(header::CACHE_CONTROL, "no-store")];
+    match &s.updater {
+        None => (no_store, Json(json!({"state": "unavailable"}))).into_response(),
+        Some(u) => u.view(|t| (no_store, Json(t)).into_response()),
+    }
+}
+async fn start_update(State(s): State<Arc<AppState>>) -> Result<StatusCode, WebError> {
+    let updater = s.updater.as_ref().ok_or_else(|| {
+        WebError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "请用 ./build.sh start 启动服务".into(),
+        )
+    })?;
+    if !updater.start() {
+        return Err(WebError(StatusCode::CONFLICT, "已有更新在进行".into()));
+    }
+    Ok(StatusCode::ACCEPTED)
 }

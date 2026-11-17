@@ -47,6 +47,15 @@ export interface Settings {
   entry_count: number;
 }
 
+/** 一键更新的进度，见 docs/blueprints/self-update.md。 */
+export type UpdateStatus =
+  | { state: "unavailable" }
+  | { state: "idle" | "checking"; output: string }
+  | { state: "pulling"; from: string; attempt: number; output: string }
+  | { state: "building" | "restarting"; from: string; to: string; output: string }
+  | { state: "up_to_date"; commit: string; output: string }
+  | { state: "failed"; stage: string; error: string; output: string };
+
 /** 新记一笔要给的字段；ID 由 `newEntryId` 生成并随请求带上，入账时刻由服务器生成。 */
 export type EntryInput = Omit<Entry, "id" | "recognition_id" | "created_at">;
 
@@ -92,6 +101,9 @@ export const api = {
   putAccount: (id: number, a: AccountInput) => call<Account>("PUT", `accounts/${id}`, a),
   deleteAccount: (id: number) => call<void>("DELETE", `accounts/${id}`),
   moveAccount: (id: number, to: number) => call<{ accounts: Account[] }>("POST", `accounts/${id}/move`, { to }),
+
+  updateStatus: () => call<UpdateStatus>("GET", "update"),
+  startUpdate: () => call<void>("POST", "update"),
 
   putSettings: (s: Pick<Settings, "cycle_day" | "budget_cents">) => call<Settings>("PUT", "settings", s),
 };

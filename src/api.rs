@@ -38,6 +38,8 @@ pub struct AppState {
     pub db: Db,
     /// 识别图片留存目录。
     pub images_dir: PathBuf,
+    /// 经 build.sh 启动才有，见 `update`。
+    pub updater: Option<Arc<crate::update::Updater>>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {

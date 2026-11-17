@@ -14,6 +14,9 @@ mode=${1-build}
 if [ "$#" -gt 0 ]; then shift; fi
 config=${1-config.toml}
 bin="$repo_dir/target/$profile/micjz"
+# 服务据此启用网页一键更新（docs/blueprints/self-update.md）。
+MICJZ_REPO=$repo_dir
+export MICJZ_REPO
 convert() { python3 deploy/db/convert.py --config "$config" "$@"; }
 
 build() {

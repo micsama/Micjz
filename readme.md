@@ -41,7 +41,7 @@ screen -S micjz
 ./build.sh run              # 构建、按需转换数据库、前台运行；Ctrl-A D 挂到后台
 ```
 
-更新：`git pull && ./build.sh`（构建期间旧服务照跑），然后 `screen -r micjz`，Ctrl-C 停掉旧服务，`./build.sh start` 启动新版本。
+更新：网页设置页「版本」旁点「更新」，服务器自己拉代码、构建，成功后重启成新版本（见 [一键更新](docs/blueprints/self-update.md)；`git fetch` 走启动时的环境，需要代理就启动前开好）。手动更新：`git pull && ./build.sh`（构建期间旧服务照跑），然后 `screen -r micjz`，Ctrl-C 停掉旧服务，`./build.sh start` 启动新版本。
 
 - `./build.sh [debug] [build|run|start] [config.toml]`：`build` 只构建并检查库；`run` 构建后启动；`start` 不构建直接启动。每次启动前都备份成 `data/micjz.db.v<版本>-<时间>.bak`（不自动清理），版本落后再转换。
 - 首次部署：`config.example.toml` 复制为 `config.toml`；启动前 `export DEEPSEEK_API_KEY=...`。需要 Rust 工具链、Python ≥ 3.11、Bun 和 `rsvg-convert`（Debian/Ubuntu 装 `librsvg2-bin`）。构建脚本先安装前端锁定依赖、构建网页、从 `icon.svg` 生成主屏 PNG 图标，再把静态资源嵌入二进制；运行二进制时无需 Bun。
