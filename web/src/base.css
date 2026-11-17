@@ -33,13 +33,6 @@ button {
   overflow: hidden;
   background: var(--bg);
 }
-/* 主屏模式：iOS 收起键盘或切回前台后，fixed 的底边有时少掉状态栏那一截，底部留空；改按屏幕高度定高。 */
-@media (display-mode: standalone) {
-  #app {
-    bottom: auto;
-    height: 100lvh;
-  }
-}
 /* 桌面上按 iPhone 尺寸居中预览；transform 让里面的 fixed 以外框为准。 */
 @media (min-width: 700px) and (hover: hover) {
   body {
