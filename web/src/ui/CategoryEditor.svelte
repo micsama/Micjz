@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 新建或编辑分类：名称（emoji 直接打在名字开头）、给模型看的 key、上级；按「完成」保存。
+  // 新建或编辑分类的紧凑面板：名称（emoji 直接打在开头）、给模型看的 key、上级；按「完成」保存。
   import { onMount, tick } from "svelte";
   import SheetHead from "./SheetHead.svelte";
   import { fallbackOf, removeCategory, saveCategory, subsOf, tops } from "../lib/store.svelte";
@@ -25,6 +25,14 @@
   /** 兜底分类必须是一级；带着二级的不能挪到别的一级下面。 */
   const fixedParent = $derived(fallback || subCount > 0);
   const parents = $derived(tops(kind).filter((c) => c.id !== old?.id));
+  const note = $derived(
+    error ||
+      (fallback
+        ? "兜底分类：识别不出时用它，key 和层级固定"
+        : subCount
+          ? `带着 ${subCount} 个二级，只能是一级`
+          : "key 给识别用，留空自动生成；小写英文、数字、下划线"),
+  );
 
   onMount(async () => {
     await tick();
@@ -49,131 +57,131 @@
   }
 </script>
 
-<SheetHead icon="grid" title={old ? "编辑分类" : "新建分类"} {onclose} action={{ label: "完成", run: submit }} />
+<SheetHead icon="grid" title={old ? "编辑分类" : parentId === null ? "新建一级分类" : "新建子类"} {onclose} action={{ label: "完成", run: submit }} />
 
 <div class="body">
-  <div class="name">
-    <span class="icon">{badge(name || "?").icon}</span>
-    <input
-      bind:this={nameInput}
-      bind:value={name}
-      placeholder="名称，开头可以放 emoji"
-      enterkeyhint="done"
-      oninput={() => (error = "")}
-      onkeydown={(e) => e.key === "Enter" && submit()}
-    />
+  <div class="card">
+    <label class="line">
+      <span class="icon">{badge(name || "?").icon}</span>
+      <input
+        bind:this={nameInput}
+        bind:value={name}
+        placeholder="名称，开头可放 emoji"
+        enterkeyhint="done"
+        oninput={() => (error = "")}
+        onkeydown={(e) => e.key === "Enter" && submit()}
+      />
+    </label>
+    <label class="line">
+      <span class="label">key</span>
+      <input
+        class="key"
+        bind:value={key}
+        disabled={fallback}
+        placeholder="留空自动生成"
+        autocapitalize="off"
+        autocomplete="off"
+        spellcheck="false"
+        enterkeyhint="done"
+        oninput={() => (error = "")}
+        onkeydown={(e) => e.key === "Enter" && submit()}
+      />
+    </label>
+    <div class="line">
+      <span class="label">上级</span>
+      <div class="parents">
+        <button class:on={parentId === null} disabled={fixedParent} onclick={() => (parentId = null)}>无</button>
+        {#each parents as p (p.id)}
+          <button class:on={parentId === p.id} disabled={fixedParent} onclick={() => (parentId = p.id)}>{p.name}</button>
+        {/each}
+      </div>
+    </div>
   </div>
-  {#if error}<p class="hint bad">{error}</p>{/if}
-
-  <h3>key</h3>
-  <input
-    class="key"
-    bind:value={key}
-    disabled={fallback}
-    placeholder={old ? "" : "留空自动生成"}
-    autocapitalize="off"
-    autocomplete="off"
-    spellcheck="false"
-    enterkeyhint="done"
-    oninput={() => (error = "")}
-    onkeydown={(e) => e.key === "Enter" && submit()}
-  />
-  <p class="hint">
-    {fallback ? "兜底分类「其他」的 key 固定，识别不出分类时用它。" : "识别时模型按它选分类：小写英文、数字、下划线。随时可改，下次识别生效。"}
-  </p>
-
-  <h3>上级</h3>
-  <div class="parents">
-    <button class:on={parentId === null} disabled={fixedParent} onclick={() => (parentId = null)}>无，作为一级</button>
-    {#each parents as p (p.id)}
-      <button class:on={parentId === p.id} disabled={fixedParent} onclick={() => (parentId = p.id)}>{p.name}</button>
-    {/each}
+  <div class="foot">
+    <p class:bad={!!error}>{note}</p>
+    {#if old && !fallback}<button class="remove" onclick={remove}>删除</button>{/if}
   </div>
-  {#if fallback}
-    <p class="hint">兜底分类必须是一级。</p>
-  {:else if subCount}
-    <p class="hint">下面还有 {subCount} 个二级，不能挪到别的一级下面。</p>
-  {/if}
-
-  {#if old && !fallback}
-    <button class="remove" onclick={remove}>删除分类</button>
-  {/if}
 </div>
 
 <style>
   .body {
     display: grid;
-    gap: 10px;
-    padding: 4px 16px 12px;
-    overflow-y: auto;
+    gap: 8px;
+    padding: 0 16px 4px;
   }
-  h3 {
-    margin: 10px 4px -2px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--label2);
-  }
-  .name {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 8px 8px 10px;
+  .card {
     border-radius: var(--radius-group);
     background: var(--card);
+    overflow: hidden;
+  }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 46px;
+    padding: 0 12px;
+  }
+  .line + .line {
+    box-shadow: inset 0 0.5px 0 var(--sep);
   }
   .icon {
     flex: none;
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
     background: var(--fill);
-    font-size: 24px;
+    font-size: 18px;
+  }
+  .label {
+    flex: none;
+    width: 32px;
+    font-size: 14px;
+    color: var(--label2);
   }
   input {
-    height: 50px;
-    padding: 0 16px;
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0;
     border: 0;
-    border-radius: var(--radius-group);
-    background: var(--card);
+    background: none;
     color: var(--label);
     font: inherit;
     font-size: 17px;
     outline: none;
   }
-  .name input {
-    flex: 1;
-    min-width: 0;
-    height: 40px;
-    padding: 0;
-    background: none;
-    font-size: 18px;
-    font-weight: 600;
-  }
   .key {
     font-family: ui-monospace, monospace;
+    font-size: 15px;
   }
   .key:disabled {
     color: var(--label2);
   }
   .parents {
+    flex: 1;
+    min-width: 0;
     display: flex;
-    flex-wrap: wrap;
     gap: 6px;
-    padding: 8px;
-    border-radius: var(--radius-group);
-    background: var(--card);
+    padding: 7px 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .parents::-webkit-scrollbar {
+    display: none;
   }
   .parents button {
-    padding: 7px 10px;
-    min-height: 36px;
+    flex: none;
+    padding: 0 10px;
+    height: 30px;
     border: 0;
-    border-radius: 12px;
+    border-radius: 10px;
     background: var(--fill);
     color: var(--label);
     font: inherit;
     font-size: 14px;
+    white-space: nowrap;
   }
   .parents button.on {
     background: var(--tint);
@@ -182,22 +190,30 @@
   .parents button:disabled:not(.on) {
     opacity: 0.4;
   }
-  .hint {
-    margin: 0 4px;
-    font-size: 13px;
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px;
+  }
+  .foot p {
+    flex: 1;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
     color: var(--label2);
   }
-  .bad {
+  .foot p.bad {
     color: var(--red);
   }
   .remove {
-    margin-top: 8px;
-    height: 48px;
+    flex: none;
+    padding: 6px 12px;
     border: 0;
-    border-radius: var(--radius-group);
+    border-radius: 10px;
     background: var(--card);
     color: var(--red);
     font: inherit;
-    font-size: 16px;
+    font-size: 14px;
   }
 </style>

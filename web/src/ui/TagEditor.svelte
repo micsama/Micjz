@@ -49,46 +49,53 @@
     oninput={() => (error = "")}
     onkeydown={(e) => e.key === "Enter" && submit()}
   />
-  {#if error}<p class="hint bad">{error}</p>{/if}
-  <p class="hint">标签只用来筛选和统计，识别时不会自动打。</p>
-  {#if old}
-    <button class="remove" onclick={remove}>删除标签</button>
-  {/if}
+  <div class="foot">
+    <p class:bad={!!error}>{error || "标签只用来筛选和统计，识别时不会自动打。"}</p>
+    {#if old}<button class="remove" onclick={remove}>删除</button>{/if}
+  </div>
 </div>
 
 <style>
   .body {
     display: grid;
-    gap: 10px;
-    padding: 4px 16px 12px;
+    gap: 8px;
+    padding: 0 16px 4px;
   }
   input {
-    height: 50px;
-    padding: 0 16px;
+    height: 46px;
+    padding: 0 14px;
     border: 0;
     border-radius: var(--radius-group);
     background: var(--card);
     color: var(--label);
     font: inherit;
-    font-size: 18px;
+    font-size: 17px;
     outline: none;
   }
-  .hint {
-    margin: 0 4px;
-    font-size: 13px;
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px;
+  }
+  .foot p {
+    flex: 1;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
     color: var(--label2);
   }
-  .bad {
+  .foot p.bad {
     color: var(--red);
   }
   .remove {
-    margin-top: 8px;
-    height: 48px;
+    flex: none;
+    padding: 6px 12px;
     border: 0;
-    border-radius: var(--radius-group);
+    border-radius: 10px;
     background: var(--card);
     color: var(--red);
     font: inherit;
-    font-size: 16px;
+    font-size: 14px;
   }
 </style>

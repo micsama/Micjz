@@ -1,13 +1,15 @@
 <script lang="ts">
-  // 设置里推入的分类、标签管理页。分类分支出、收入，一级点进去看二级，长按拖动排序；点行打开编辑面板。
+  // 设置里推入的分类、标签管理页。
+  // 分类：一级一行，点开原地展开它的二级（小块平铺）；铅笔改一级，点二级小块改二级；长按拖动排序。
+  // 标签：小块平铺，点开改名。
   import Icon from "./Icon.svelte";
   import Sheet from "./Sheet.svelte";
   import Segmented from "./Segmented.svelte";
   import CategoryEditor from "./CategoryEditor.svelte";
   import TagEditor from "./TagEditor.svelte";
   import { holdKeyboard } from "./nav.svelte";
-  import { Reorder } from "./reorder.svelte";
-  import { app, categoryOf, fallbackOf, moveCategory, subsOf, topIndex, tops } from "../lib/store.svelte";
+  import { ChipReorder, Reorder } from "./reorder.svelte";
+  import { app, categoryOf, fallbackOf, moveCategory, subsOf, tops } from "../lib/store.svelte";
   import { badge } from "../lib/format";
   import { color } from "../lib/look";
   import type { Category, FlowKind, Tag } from "../lib/types";
@@ -15,18 +17,19 @@
   let { which, onback }: { which: "categories" | "tags"; onback: () => void } = $props();
 
   let kind = $state<FlowKind>("expense");
-  /** 点进去的一级；按 id 记，改名、挪位后仍指向它。 */
+  const list = $derived(tops(kind));
+  /** 展开的一级；一次只展开一个。 */
   let openId = $state<number | null>(null);
-  /** 被删掉或挪成二级后自动回到一级列表。 */
-  const top = $derived(categoryOf(openId)?.parent_id === null ? categoryOf(openId) : undefined);
-  const list = $derived(top ? subsOf(top) : tops(kind));
-  /** 正在编辑的分类或标签；`"new"` 是新建。 */
-  let editing = $state<Category | Tag | "new" | null>(null);
+  const open = $derived(categoryOf(openId));
+  const subs = $derived(open ? subsOf(open) : []);
+
+  type Editing = { category: Category | null; parent: number | null } | { tag: Tag | null };
+  let editing = $state<Editing | null>(null);
+
   const reorder = new Reorder((from, to) => moveCategory(list[from], to));
+  const chips = new ChipReorder((from, to) => moveCategory(subs[from], to));
 
-  const title = $derived(which === "tags" ? "标签" : (top?.name ?? "分类"));
-
-  function edit(x: Category | Tag | "new") {
+  function edit(x: Editing) {
     holdKeyboard();
     editing = x;
   }
@@ -34,81 +37,82 @@
 
 <div class="page">
   <header class="bar">
-    <button class="back" onclick={() => (top ? (openId = null) : onback())}><Icon name="chevron-left" size={22} weight={2.6} />{top ? "分类" : "设置"}</button>
-    <span class="t">{title}</span>
-    {#if top}<button class="link" onclick={() => edit(top)}>编辑</button>{:else}<span></span>{/if}
+    <button class="back" onclick={onback}><Icon name="chevron-left" size={22} weight={2.6} />设置</button>
+    <span class="t">{which === "tags" ? "标签" : "分类"}</span>
+    <span></span>
   </header>
 
   {#if which === "tags"}
-    <div class="group">
+    <div class="group cloud">
       {#each app.catalog.tags as t (t.id)}
-        <button class="row" onclick={() => edit(t)}>
-          <span class="mark"><Icon name="tag" size={17} weight={2.2} /></span>
-          <span class="name">{t.name}</span>
-          <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
-        </button>
-      {:else}
-        <p class="empty">还没有标签</p>
+        <button class="chip" onclick={() => edit({ tag: t })}><Icon name="tag" size={13} weight={2.2} />{t.name}</button>
       {/each}
+      <button class="chip add" onclick={() => edit({ tag: null })}><Icon name="plus" size={13} weight={2.6} />添加标签</button>
     </div>
-    <button class="add" onclick={() => edit("new")}><Icon name="plus" size={16} weight={2.4} />添加标签</button>
-    <p class="foot">标签按添加顺序排列；还有账目在用的不能删除。</p>
+    <p class="foot">点标签改名或删除。还有账目在用的不能删除。</p>
   {:else}
-    {#if !top}
-      <div class="seg">
-        <Segmented
-          label="分类类型"
-          options={[
-            ["expense", "支出"],
-            ["income", "收入"],
-          ]}
-          value={kind}
-          onchange={(v) => (kind = v)}
-        />
-      </div>
-    {/if}
-    {#if list.length}
-      <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
-        {#each list as c, i (c.id)}
-          {@const subs = top ? 0 : subsOf(c).length}
-          <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
-            <button class="row" onclick={() => (top ? edit(c) : (openId = c.id))}>
-              <span class="mark" style:--mc={color(top ? topIndex(top) : i)}>{badge(c.name).icon}</span>
-              <span class="main">
-                <span class="name"
-                  >{badge(c.name).text}{#if c.id === fallbackOf(c.kind).id}<em>兜底</em>{/if}</span
-                >
-                <span class="sub">{c.key}</span>
-              </span>
-              {#if !top}<span class="count">{subs ? `${subs} 个二级` : ""}</span>{/if}
-              <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+    <div class="seg">
+      <Segmented
+        label="分类类型"
+        options={[
+          ["expense", "支出"],
+          ["income", "收入"],
+        ]}
+        value={kind}
+        onchange={(v) => {
+          kind = v;
+          openId = null;
+        }}
+      />
+    </div>
+    <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
+      {#each list as c, i (c.id)}
+        {@const n = subsOf(c).length}
+        {@const expanded = c.id === openId}
+        <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)" style:--mc={color(i)}>
+          <div class="row">
+            <button class="head" aria-expanded={expanded} onclick={() => (openId = expanded ? null : c.id)}>
+              <span class="mark">{badge(c.name).icon}</span>
+              <span class="name"
+                >{badge(c.name).text}{#if c.id === fallbackOf(c.kind).id}<em>兜底</em>{/if}</span
+              >
+              <span class="count">{n || ""}</span>
+              <span class="chev" class:up={expanded}><Icon name="chevron-down" size={14} weight={2.6} /></span>
+            </button>
+            <button class="pencil" aria-label="编辑{c.name}" onclick={() => edit({ category: c, parent: null })}>
+              <Icon name="pencil" size={16} weight={2.2} />
             </button>
           </div>
-        {/each}
-      </div>
-    {:else}
-      <p class="empty alone">还没有二级分类，记账时直接选「{top?.name}」</p>
-    {/if}
-    <button class="add" onclick={() => edit("new")}><Icon name="plus" size={16} weight={2.4} />{top ? "添加二级分类" : "添加一级分类"}</button>
-    <p class="foot">
-      {top
-        ? "长按拖动排序。右上角「编辑」改这个一级本身。"
-        : "点一级看它的二级，长按拖动排序。emoji 直接打在名称开头。还有账目在用的分类不能删除，先把账改到别的分类。"}
-    </p>
+          {#if expanded}
+            <div class="subs" class:sorting={chips.from >= 0} {@attach chips.attach}>
+              {#each subs as s, j (s.id)}
+                <button
+                  class="chip"
+                  data-drag
+                  class:lifted={chips.from === j}
+                  class:before={chips.from > j && chips.to === j}
+                  class:after={chips.from >= 0 && chips.from < j && chips.to === j}
+                  style:transform={chips.from === j ? `translate(${chips.dx}px, ${chips.dy}px)` : undefined}
+                  onclick={() => edit({ category: s, parent: c.id })}>{s.name}</button
+                >
+              {/each}
+              <button class="chip add" onclick={() => edit({ category: null, parent: c.id })}><Icon name="plus" size={13} weight={2.6} />添加子类</button>
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+    <button class="addtop" onclick={() => edit({ category: null, parent: null })}><Icon name="plus" size={16} weight={2.4} />添加一级分类</button>
+    <p class="foot">点一级展开它的子类，铅笔改一级本身；一级和子类都能长按拖动排序。emoji 直接打在名称开头。还有账目在用的分类不能删除。</p>
   {/if}
   <div class="tail"></div>
 </div>
 
 <Sheet open={editing !== null} onclose={() => (editing = null)}>
-  {#if editing && which === "tags"}
-    <TagEditor tag={editing === "new" ? null : (editing as Tag)} onclose={() => (editing = null)} />
+  {#if editing && "tag" in editing}
+    <TagEditor tag={editing.tag} onclose={() => (editing = null)} />
   {:else if editing}
-    <CategoryEditor
-      category={editing === "new" ? null : (editing as Category)}
-      kind={top?.kind ?? kind}
-      parent={top?.id ?? null}
-      onclose={() => (editing = null)}
-    />
+    <CategoryEditor category={editing.category} {kind} parent={editing.parent} onclose={() => (editing = null)} />
   {/if}
 </Sheet>
 
@@ -137,8 +141,8 @@
     -webkit-backdrop-filter: saturate(180%) blur(24px);
     box-shadow: 0 0.5px 0 var(--sep);
   }
-  .back,
-  .link {
+  .back {
+    justify-self: start;
     display: flex;
     align-items: center;
     gap: 1px;
@@ -149,23 +153,11 @@
     font-size: 17px;
     padding: 6px 4px;
   }
-  .back {
-    justify-self: start;
-  }
-  .link {
-    justify-self: end;
-    padding-right: 8px;
-  }
-  .back:active,
-  .link:active {
+  .back:active {
     opacity: 0.4;
   }
   .t {
     font-weight: 600;
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .seg {
     margin: 12px 16px 0;
@@ -173,53 +165,53 @@
   .group {
     margin: 16px 16px 0;
     border-radius: var(--radius-group);
-    overflow: hidden;
     background: var(--card);
     box-shadow: var(--shadow-card);
   }
   .item {
     position: relative;
     background: var(--card);
+    border-radius: var(--radius-group);
   }
-  .sorting .item {
+  .sorting > .item {
     transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  .sorting .item.lifted {
+  .sorting > .item.lifted {
     z-index: 2;
     transition: none;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   }
-  .group > * + *::before {
+  .item + .item::before {
     content: "";
     position: absolute;
     z-index: 1;
-    left: 60px;
+    left: 58px;
     right: 0;
     top: 0;
     height: 0.5px;
     background: var(--sep);
   }
   .row {
-    box-sizing: border-box;
-    position: relative;
+    display: flex;
+    align-items: center;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .head {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 12px;
-    width: 100%;
-    min-height: 56px;
-    padding: 8px 14px;
+    min-height: 54px;
+    padding: 8px 4px 8px 12px;
     border: 0;
     background: none;
     color: inherit;
     font: inherit;
     font-size: 16px;
     text-align: left;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-  }
-  .row:active {
-    background: var(--press);
   }
   .mark {
     flex: none;
@@ -229,14 +221,7 @@
     display: grid;
     place-items: center;
     font-size: 20px;
-    color: var(--tint);
-    background: color-mix(in srgb, var(--mc, var(--tint)) 16%, var(--card));
-  }
-  .main {
-    flex: 1;
-    min-width: 0;
-    display: grid;
-    gap: 1px;
+    background: color-mix(in srgb, var(--mc) 16%, var(--card));
   }
   .name {
     flex: 1;
@@ -255,11 +240,6 @@
     font-style: normal;
     vertical-align: 2px;
   }
-  .sub {
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
-    color: var(--label2);
-  }
   .count {
     flex: none;
     font-size: 14px;
@@ -268,18 +248,85 @@
   .chev {
     display: flex;
     color: var(--label3);
+    transition: transform 0.2s;
   }
-  .empty {
-    margin: 0;
-    padding: 16px;
-    text-align: center;
-    font-size: 14px;
-    color: var(--label2);
+  .chev.up {
+    transform: rotate(180deg);
   }
-  .empty.alone {
-    margin: 16px 16px 0;
+  .pencil {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 54px;
+    border: 0;
+    background: none;
+    color: var(--tint);
   }
-  .add {
+  .head:active,
+  .pencil:active {
+    opacity: 0.5;
+  }
+  .subs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 2px 12px 14px 58px;
+  }
+  .cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px;
+  }
+  .chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 34px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--mc, var(--tint)) 12%, var(--card));
+    color: var(--label);
+    font: inherit;
+    font-size: 15px;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .chip:active {
+    opacity: 0.6;
+  }
+  .chip.add {
+    background: none;
+    box-shadow: inset 0 0 0 1px var(--sep);
+    color: var(--tint);
+  }
+  .subs.sorting .chip.lifted {
+    z-index: 2;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    background: var(--card);
+  }
+  /* 松手会插到这个小块前面或后面。 */
+  .chip.before::before,
+  .chip.after::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--tint);
+  }
+  .chip.before::before {
+    left: -6px;
+  }
+  .chip.after::after {
+    right: -6px;
+  }
+  .addtop {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -295,7 +342,7 @@
     font: inherit;
     font-size: 16px;
   }
-  .add:active {
+  .addtop:active {
     background: var(--press);
   }
   .foot {
