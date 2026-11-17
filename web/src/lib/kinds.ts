@@ -20,5 +20,5 @@ export function effect(e: Entry, account: number): number {
   }
 }
 
-/** 列表里出不出现：账目页不列平账（只是账户上的校正）；账户明细列所有经过这个账户的账目。 */
-export const listed = (e: Entry, account?: number) => (account === undefined ? e.kind !== "adjust" : e.account_id === account || e.to_account_id === account);
+/** 列表里出不出现：账目页列所有类型；账户视角只列经过这个账户的账目。平账不进收支，只是列出来方便查和删。 */
+export const listed = (e: Entry, account?: number) => account === undefined || e.account_id === account || e.to_account_id === account;
