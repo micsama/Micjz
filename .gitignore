@@ -6,3 +6,4 @@
 /token.txt
 /web/node_modules
 /web/dist
+.DS_Store

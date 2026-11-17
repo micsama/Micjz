@@ -20,7 +20,12 @@ build() {
     command -v cargo >/dev/null 2>&1 || { echo "请先手动安装 Rust 工具链（cargo）" >&2; exit 1; }
     command -v python3 >/dev/null 2>&1 || { echo "请先手动安装 Python 3（≥ 3.11）" >&2; exit 1; }
     command -v bun >/dev/null 2>&1 || { echo "请先手动安装 Bun" >&2; exit 1; }
+    command -v rsvg-convert >/dev/null 2>&1 || { echo "请先手动安装 rsvg-convert（apt install librsvg2-bin / brew install librsvg）" >&2; exit 1; }
     (cd web && bun install --frozen-lockfile && bun run build)
+    # 主屏图标：iOS 不认 SVG，构建时从 icon.svg 生成 PNG，只进产物不进 git。
+    for size in 180 192 512; do
+        rsvg-convert -w "$size" -h "$size" web/public/icon.svg -o "web/dist/icon-$size.png"
+    done
     MICJZ_VERSION=$(git rev-parse --short HEAD)
     export MICJZ_VERSION
     case "$profile" in
