@@ -292,7 +292,7 @@ fn mock_draft(now: DateTime<FixedOffset>, cat: &Catalog) -> Draft {
     Draft {
         amount_cents: Some(3250),
         category_id: cat
-            .by_key(Kind::Expense, "coffee")
+            .by_key(Kind::Expense, "drink")
             .unwrap_or_else(|| cat.fallback(Kind::Expense)),
         merchant: Some("瑞幸咖啡".to_owned()),
         note: Some("生椰拿铁".to_owned()),

@@ -82,7 +82,7 @@ fn entry_kinds_and_balances() {
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn.execute_batch(SCHEMA).unwrap();
     conn.execute_batch(catalog::SEED).unwrap();
-    // 账户 1 微信、2 银行卡；分类 coffee（支出）、salary（收入）。
+    // 账户 1 微信、2 银行卡；分类 drink（支出）、salary（收入）。
     let insert = |id: &str, kind: &str, amount: &str, category: &str, account: i64, to: &str| {
         conn.execute(
             &format!(
@@ -97,19 +97,19 @@ fn entry_kinds_and_balances() {
     };
     insert("a", "adjust", "10000", "", 2, "NULL").unwrap();
     insert("b", "income", "5000", "salary", 2, "NULL").unwrap();
-    insert("c", "expense", "1200", "coffee", 1, "NULL").unwrap();
+    insert("c", "expense", "1200", "drink", 1, "NULL").unwrap();
     insert("d", "transfer", "3000", "", 2, "1").unwrap();
     insert("e", "adjust", "-500", "", 1, "NULL").unwrap();
 
     for (why, kind, amount, category, account, to) in [
-        ("支出金额须为正", "expense", "-1", "coffee", 1, "NULL"),
+        ("支出金额须为正", "expense", "-1", "drink", 1, "NULL"),
         ("平账差额不能为 0", "adjust", "0", "", 1, "NULL"),
-        ("金额必须是整数", "expense", "1.5", "coffee", 1, "NULL"),
+        ("金额必须是整数", "expense", "1.5", "drink", 1, "NULL"),
         ("支出必须有分类", "expense", "1", "", 1, "NULL"),
-        ("平账没有分类", "adjust", "1", "coffee", 1, "NULL"),
+        ("平账没有分类", "adjust", "1", "drink", 1, "NULL"),
         ("转账要有对方账户", "transfer", "1", "", 1, "NULL"),
         ("不能转给自己", "transfer", "1", "", 1, "1"),
-        ("支出没有对方账户", "expense", "1", "coffee", 1, "2"),
+        ("支出没有对方账户", "expense", "1", "drink", 1, "2"),
     ] {
         assert!(
             insert("x", kind, amount, category, account, to).is_err(),

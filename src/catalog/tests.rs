@@ -49,13 +49,13 @@ fn seed_data() {
     );
     assert_eq!(default_account(&cat), "微信");
     assert_eq!(
-        key_path(&cat, Kind::Expense, "coffee").as_deref(),
-        Some("🍜 餐饮/☕️ 咖啡饮品")
+        key_path(&cat, Kind::Expense, "drink").as_deref(),
+        Some("🍚 饮食/🧋 饮料咖啡")
     );
     assert_eq!(
-        cat.by_key(Kind::Expense, "food"),
-        None,
-        "有二级的一级不给模型"
+        key_path(&cat, Kind::Expense, "food").as_deref(),
+        Some("🍚 饮食"),
+        "有二级的一级也能给模型"
     );
 }
 
@@ -122,7 +122,7 @@ fn add_rename_remove() {
         "最后一个账户不能删"
     );
 
-    run(&mut conn, "category move 支出 '🍜 餐饮/🍲 聚餐' 1").unwrap();
+    run(&mut conn, "category move 支出 '🍚 饮食/🍓 零食水果' 1").unwrap();
     run(&mut conn, "category move 支出 '✨ 其他' 1").unwrap();
     let cat = load(&conn).unwrap();
     let first = &cat.categories(Kind::Expense)[0];
@@ -130,8 +130,8 @@ fn add_rename_remove() {
     let food = cat
         .categories(Kind::Expense)
         .iter()
-        .find(|c| c.name == "🍜 餐饮");
-    assert_eq!(food.unwrap().subs[0].name, "🍲 聚餐");
+        .find(|c| c.name == "🍚 饮食");
+    assert_eq!(food.unwrap().subs[0].name, "🍓 零食水果");
     assert!(run(&mut conn, "category move 支出 '✨ 其他' 0").is_err());
     run(&mut conn, "tag rename 恋爱 约会").unwrap();
     assert_eq!(load(&conn).unwrap().tags[0].name, "约会");
@@ -148,7 +148,7 @@ fn used_ones_cannot_be_removed() {
          INSERT INTO entries (id, kind, amount_cents, category_id, account_id, occurred_at,
                               created_at)
          SELECT 'e1', 'expense', 100, c.id, a.id, 'now', 'now'
-         FROM categories c, accounts a WHERE c.key = 'coffee' AND a.name = '微信';
+         FROM categories c, accounts a WHERE c.key = 'drink' AND a.name = '微信';
          INSERT INTO entry_tags SELECT 'e1', id FROM tags WHERE name = '恋爱';
          INSERT INTO accounts (name, position) VALUES ('现金', 9);
          INSERT INTO entries (id, kind, amount_cents, account_id, to_account_id, occurred_at,
@@ -157,7 +157,7 @@ fn used_ones_cannot_be_removed() {
          FROM accounts a, accounts b WHERE a.name = '银行卡' AND b.name = '现金';",
     )
     .unwrap();
-    let err = run(&mut conn, "category rm 支出 '🍜 餐饮/☕️ 咖啡饮品'").unwrap_err();
+    let err = run(&mut conn, "category rm 支出 '🍚 饮食/🧋 饮料咖啡'").unwrap_err();
     assert!(err.to_string().contains("1 笔账"), "{err}");
     assert!(run(&mut conn, "account rm 微信").is_err());
     assert!(run(&mut conn, "tag rm 恋爱").is_err());
@@ -170,10 +170,10 @@ fn used_ones_cannot_be_removed() {
             .unwrap()
             .contains("现金  1 笔")
     );
-    run(&mut conn, "category rename 支出 '🍜 餐饮/☕️ 咖啡饮品' 咖啡").unwrap();
+    run(&mut conn, "category rename 支出 '🍚 饮食/🧋 饮料咖啡' 咖啡").unwrap();
     assert!(
         run(&mut conn, "category list")
             .unwrap()
-            .contains("咖啡  coffee  1 笔")
+            .contains("咖啡  drink  1 笔")
     );
 }

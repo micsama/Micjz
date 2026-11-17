@@ -27,10 +27,10 @@ fn path(d: &Draft) -> String {
 fn full_output() {
     let d = draft(
         r#"{"ok":true,"kind":"expense","amount":"32.50","merchant":"瑞幸咖啡","item":"生椰拿铁",
-            "account":"微信","occurred_at":"2026-11-16 12:05","category":"coffee"}"#,
+            "account":"微信","occurred_at":"2026-11-16 12:05","category":"drink"}"#,
     );
     assert_eq!(d.amount_cents, Some(3250));
-    assert_eq!(path(&d), "🍜 餐饮/☕️ 咖啡饮品");
+    assert_eq!(path(&d), "🍚 饮食/🧋 饮料咖啡");
     assert_eq!(d.occurred_at.to_rfc3339(), "2026-11-16T12:05:00+08:00");
     assert_eq!(d.note.as_deref(), Some("生椰拿铁"), "商品名进备注");
 }
@@ -64,7 +64,7 @@ fn recent_time_uses_now() {
 fn income_key_must_match_kind() {
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"refund"}"#);
     assert_eq!((d.kind, path(&d).as_str()), (Kind::Income, "↩️ 退款"));
-    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"coffee"}"#);
+    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"drink"}"#);
     assert_eq!(path(&d), "✨ 其他", "支出 key 不能用在收入上");
 }
 
@@ -89,7 +89,11 @@ async fn mock_always_ok() {
         )
         .await;
     assert_eq!(r.outcome, Outcome::Ok);
-    assert!(r.prompt.contains("coffee: 🍜 餐饮/☕️ 咖啡饮品"));
+    assert!(
+        r.prompt.contains("food: 🍚 饮食\nmeal: 🍚 饮食/🍱 三餐"),
+        "一级也列给模型"
+    );
+    assert!(r.prompt.contains("drink: 🍚 饮食/🧋 饮料咖啡"));
     assert!(
         r.prompt.contains("看不出省略：\n微信\n银行卡"),
         "账户逐行列出"

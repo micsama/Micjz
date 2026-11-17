@@ -13,7 +13,7 @@ fn draft() -> Draft {
         id: "01".to_owned(),
         kind: Kind::Expense,
         amount_cents: Some(3250),
-        category_id: cat.by_key(Kind::Expense, "coffee").unwrap(),
+        category_id: cat.by_key(Kind::Expense, "drink").unwrap(),
         account_id: cat.account_named("微信").unwrap(),
         merchant: Some("瑞幸咖啡".to_owned()),
         occurred_at: now(),
@@ -58,7 +58,7 @@ fn menu_summary() {
         vec![
             "💰 金额 · 32.50",
             "↔️ 类型 · 支出",
-            "🍜 餐饮 / ☕️ 咖啡饮品",
+            "🍚 饮食 / 🧋 饮料咖啡",
             "💳 账户 · 微信",
             "🏪 商家 · 瑞幸咖啡",
             "🕒 时间 · 11-16 13:42",
@@ -91,7 +91,7 @@ fn confirm_returns_draft() {
 
 #[test]
 fn two_level_category() {
-    let r = reply(draft(), "action", "🍜 餐饮 / ☕️ 咖啡饮品");
+    let r = reply(draft(), "action", "🍚 饮食 / 🧋 饮料咖啡");
     assert_eq!(r.field, "category");
     assert!(r.options.contains(&"🚇 交通".to_owned()));
 

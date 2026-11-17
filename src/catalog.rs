@@ -67,7 +67,7 @@ impl CardType {
     }
 }
 
-/// 每个分类都有模型 key；只有叶子（没有二级的一级、二级）的 key 会给模型。
+/// 每个分类都有模型 key，一级、二级的 key 都会给模型。
 pub struct Category {
     pub id: i64,
     pub name: String,
@@ -107,10 +107,10 @@ impl Catalog {
         })
     }
 
-    /// 模型给的叶子 key → 分类 id。
+    /// 模型给的 key → 分类 id；一级、二级都可以。
     pub fn by_key(&self, kind: Kind, key: &str) -> Option<i64> {
         self.categories(kind).iter().find_map(|c| {
-            if c.subs.is_empty() && c.key == key {
+            if c.key == key {
                 return Some(c.id);
             }
             c.subs.iter().find(|s| s.key == key).map(|s| s.id)
@@ -172,13 +172,11 @@ impl Catalog {
             .join("\n")
     }
 
-    /// 给 prompt 用：每个叶子一行 `key: 一级/二级`。
+    /// 给 prompt 用：每个分类一行，一级 `key: 一级`，二级 `key: 一级/二级`。
     pub fn key_lines(&self, kind: Kind) -> String {
         let mut lines = Vec::new();
         for c in self.categories(kind) {
-            if c.subs.is_empty() {
-                lines.push(format!("{}: {}", c.key, c.name));
-            }
+            lines.push(format!("{}: {}", c.key, c.name));
             for s in &c.subs {
                 lines.push(format!("{}: {}/{}", s.key, c.name, s.name));
             }

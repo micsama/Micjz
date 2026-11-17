@@ -8,5 +8,5 @@ merchant 是明确可见的商家或对方名称；item 是截图里可见的商
 {accounts}
 看不到的字段省略，不猜测。不输出 note、tags、warnings、subcategory，无需 reason:null。
 occurred_at 仅当截图时间明确且距离当前超过30分钟才输出，格式 YYYY-MM-DD HH:MM:SS；没写年份用当前年份。否则省略，服务器使用当前时间。
-category 输出下列可读英文 key，二级 key 唯一直接表示一级/二级，无需另输出 subcategory；同一级内顺序为模糊时的优先级。
+category 输出下列可读英文 key，二级 key 已表示所属一级，无需另输出 subcategory；能确定二级时用二级 key，只能确定大类时用一级 key；同一级内顺序为模糊时的优先级。
 {categories}
