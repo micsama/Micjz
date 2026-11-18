@@ -270,7 +270,17 @@
     background: none;
     color: var(--tint);
   }
-  .head:active,
+  /* 按下整行变底色，和其他列表一致；不改透明度，免得点开时一闪。拖动排序时不显示。 */
+  .group:not(.sorting) .row:has(.head:active) {
+    background: var(--press);
+  }
+  .item:first-child > .row {
+    border-radius: var(--radius-group) var(--radius-group) 0 0;
+  }
+  .item:last-child > .row:last-child {
+    border-bottom-left-radius: var(--radius-group);
+    border-bottom-right-radius: var(--radius-group);
+  }
   .pencil:active {
     opacity: 0.5;
   }
