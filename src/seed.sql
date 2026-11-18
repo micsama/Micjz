@@ -6,11 +6,12 @@ INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense',
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🍱 三餐', 'meal', 1 FROM categories WHERE key = 'food';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🍓 零食水果', 'snack', 2 FROM categories WHERE key = 'food';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🧋 饮料咖啡', 'drink', 3 FROM categories WHERE key = 'food';
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🚇 交通', 'transport', 2);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🧭 出行', 'transport', 2);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🚌 公交地铁', 'transit', 1 FROM categories WHERE key = 'transport';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🚕 打车', 'taxi', 2 FROM categories WHERE key = 'transport';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🚄 火车飞机', 'trip', 3 FROM categories WHERE key = 'transport';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🛵 汽车电驴', 'vehicle', 4 FROM categories WHERE key = 'transport';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🏨 酒店住宿', 'lodging', 5 FROM categories WHERE key = 'transport';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🏠 住房', 'housing', 3);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🔑 房租物业', 'rent', 1 FROM categories WHERE key = 'housing';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '💡 水电燃气', 'utilities', 2 FROM categories WHERE key = 'housing';
@@ -29,7 +30,7 @@ INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', 
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🎮 娱乐', 'fun', 7);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🕹️ 游戏', 'game', 1 FROM categories WHERE key = 'fun';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎬 影音演出', 'show', 2 FROM categories WHERE key = 'fun';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🧳 旅行', 'travel', 3 FROM categories WHERE key = 'fun';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎡 景区乐园', 'park', 3 FROM categories WHERE key = 'fun';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '💳 会员', 'membership', 8);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🤖 AI 工具', 'ai', 1 FROM categories WHERE key = 'membership';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '📺 影音会员', 'media', 2 FROM categories WHERE key = 'membership';

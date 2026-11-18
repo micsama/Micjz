@@ -93,15 +93,15 @@ fn confirm_returns_draft() {
 fn two_level_category() {
     let r = reply(draft(), "action", "🍚 饮食 / 🧋 饮料咖啡");
     assert_eq!(r.field, "category");
-    assert!(r.options.contains(&"🚇 交通".to_owned()));
+    assert!(r.options.contains(&"🧭 出行".to_owned()));
 
-    let r = reply(decoded(&r), "category", "🚇 交通");
+    let r = reply(decoded(&r), "category", "🧭 出行");
     assert_eq!(r.field, "subcategory");
-    assert_eq!(path(&decoded(&r)), "🚇 交通", "没选二级前停在一级");
+    assert_eq!(path(&decoded(&r)), "🧭 出行", "没选二级前停在一级");
 
     let r = reply(decoded(&r), "subcategory", "🚕 打车");
     assert_eq!(r.field, "action");
-    assert!(r.options.contains(&"🚇 交通 / 🚕 打车".to_owned()));
+    assert!(r.options.contains(&"🧭 出行 / 🚕 打车".to_owned()));
 
     let r = reply(decoded(&r), "category", "✨ 其他");
     assert_eq!(r.field, "action", "无二级直接回主菜单");
@@ -205,10 +205,10 @@ fn dynamic_actions_round_trip() {
 
 #[test]
 fn decorated_choices_store_plain_values() {
-    let r = reply(draft(), "category", "🚇 交通");
+    let r = reply(draft(), "category", "🧭 出行");
     assert!(r.options.contains(&"🚕 打车".to_owned()));
     let r = reply(decoded(&r), "subcategory", "🚕 打车");
-    assert_eq!(path(&decoded(&r)), "🚇 交通/🚕 打车");
+    assert_eq!(path(&decoded(&r)), "🧭 出行/🚕 打车");
     let r = reply(decoded(&r), "account", "银行卡");
     assert_eq!(account(&decoded(&r)), "银行卡");
     let r = reply(decoded(&r), "tags", "恋爱");
