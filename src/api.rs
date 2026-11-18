@@ -85,6 +85,7 @@ async fn access_log(State(state): State<Arc<AppState>>, mut req: Request, next: 
     if status == StatusCode::UNAUTHORIZED
         || !(matches!(path.as_str(), "/recognize" | "/step")
             || (path.starts_with("/api/")
+                && path != "/api/web-performance"
                 && matches!(method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE")))
     {
         return resp;

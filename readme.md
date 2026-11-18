@@ -46,6 +46,21 @@ screen -S micjz
 - `./build.sh [debug] [build|run|start] [config.toml]`：`build` 只构建并检查库；`run` 构建后启动；`start` 不构建直接启动。每次启动前都备份成 `data/micjz.db.v<版本>-<时间>.bak`（不自动清理），版本落后再转换。
 - 首次部署：`config.example.toml` 复制为 `config.toml`；启动前 `export DEEPSEEK_API_KEY=...`。需要 Rust 工具链、Python ≥ 3.11、Bun 和 `rsvg-convert`（Debian/Ubuntu 装 `librsvg2-bin`）。构建脚本先安装前端锁定依赖、构建网页、从 `icon.svg` 生成主屏 PNG 图标，再把静态资源嵌入二进制；运行二进制时无需 Bun。
 
+## 网页启动耗时
+
+登录后的网页打开和回到前台时，服务日志会各写一条 `web_performance`，其中 `metrics` 是一行 JSON。使用 `screen` 部署时，可以在启动服务时追加到同一份日志：
+
+```sh
+./build.sh start >> data/micjz.log 2>&1
+```
+
+用 `grep 'web_performance' data/micjz.log` 查看记录。采样时，在已登录的手机上从主屏幕冷启动几次，再切到其他应用后返回几次。看 `kind=startup` 和 `kind=resume` 对应的 JSON 记录，`standalone` 标记主屏幕独立模式。每次测试等账目显示或刷新完成后再切走。
+
+- `total_ms` 是从文档导航或回前台到本轮账目和设置就绪的时间。`paint_ms` 通过浏览器动画帧估计渲染完成时间，后台或未及时绘制时为空。
+- `before_boot_ms` 是导航到应用开始加载账目的时间，可结合 HTML 请求、首个内容绘制，以及 JS/CSS 的传输量和耗时判断资源瓶颈。
+- 目录、设置、余额和账目各有独立耗时。`resources` 还记录各请求的开始时间、首字节、下载时间和字节数，便于看哪些请求并行、哪些在等待。
+- 记录只包含计时、字节数和固定的资源类型。上报需要有效登录，断网时可能收不到该条记录。
+
 ## 初始化 / 重建库
 
 首次部署或调试期删库重建时，按这个顺序（以服务器上为例）：

@@ -26,6 +26,10 @@ struct Assets;
 pub(super) fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/login", post(super::session::login))
+        .route(
+            "/api/web-performance",
+            post(web_performance).layer(axum::extract::DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/api/logout", post(super::session::logout))
         .route("/api/password", put(super::session::password))
         .route("/api/catalog", get(catalog_handler))
@@ -55,6 +59,96 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/api/recognitions/{id}/image", get(image))
         .route("/api/export.csv", get(export))
         .route("/api/update", get(update_status).post(start_update))
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PerformanceKind {
+    Startup,
+    Login,
+    Retry,
+    Resume,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PerformanceOutcome {
+    Ready,
+    Login,
+    Failed,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ResourceKind {
+    Js,
+    Css,
+    Catalog,
+    Settings,
+    Balances,
+    Entries,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+struct ResourceTiming {
+    start_ms: u32,
+    duration_ms: u32,
+    ttfb_ms: Option<u32>,
+    download_ms: Option<u32>,
+    transfer_bytes: u32,
+    encoded_bytes: u32,
+    decoded_bytes: u32,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+struct ResourcePerformance {
+    label: ResourceKind,
+    #[serde(flatten)]
+    timing: ResourceTiming,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+struct NavigationPerformance {
+    dns_ms: u32,
+    connect_ms: u32,
+    server_wait_ms: Option<u32>,
+    #[serde(flatten)]
+    timing: ResourceTiming,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct WebPerformance {
+    kind: PerformanceKind,
+    outcome: PerformanceOutcome,
+    standalone: bool,
+    total_ms: u32,
+    paint_ms: Option<u32>,
+    before_boot_ms: Option<u32>,
+    first_contentful_paint_ms: Option<u32>,
+    catalog_ms: Option<u32>,
+    settings_ms: Option<u32>,
+    entries_ms: Option<u32>,
+    balances_ms: Option<u32>,
+    navigation: Option<NavigationPerformance>,
+    resource_count: u32,
+    resources: Vec<ResourcePerformance>,
+}
+
+async fn web_performance(
+    payload: Result<Json<WebPerformance>, JsonRejection>,
+) -> Result<StatusCode, WebError> {
+    let p = body(payload)?;
+    if p.resources.len() > 24 {
+        return Err(invalid("性能记录含太多资源"));
+    }
+    let metrics = serde_json::to_string(&p).map_err(internal)?;
+    tracing::info!(
+        version = option_env!("MICJZ_VERSION").unwrap_or("dev"),
+        %metrics,
+        "web_performance"
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(super) struct WebError(pub(super) StatusCode, pub(super) String);

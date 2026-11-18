@@ -21,7 +21,7 @@
     document.documentElement.dataset.theme = t.id;
   });
 
-  void boot();
+  void boot("startup");
 
   // 看到哪个周期就把它和上一期（环比要用）的账目取齐。
   $effect(() => {

@@ -1,5 +1,6 @@
 // 页面状态和所有操作；主题只负责展示，读写服务器都走这里。
 // 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
+import { webPerformance, type BootKind } from "./performance";
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
 import { checkUpdated } from "./update.svelte";
 import { api, ApiError, type AccountInput, type CategoryInput, type EntryInput, type EntryPatch, type Settings } from "./api";
@@ -90,38 +91,52 @@ async function guard<T>(p: Promise<T>): Promise<T | undefined> {
 async function reloadCatalog() {
   const c = await attempt(api.catalog());
   if (!(c instanceof ApiError)) app.catalog = c;
+  return !(c instanceof ApiError);
 }
 
 type Balances = Awaited<ReturnType<typeof api.balances>>;
 const setBalances = (b: Balances) => (app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents])));
 
 /** 写之后余额、笔数会变，从服务器重取。 */
-async function refreshTotals() {
-  const [b, s] = await Promise.all([attempt(api.balances()), attempt(api.settings())]);
+async function refreshTotals(perf?: ReturnType<typeof webPerformance>) {
+  const [b, s] = await Promise.all([
+    perf ? perf.measure("balances_ms", () => attempt(api.balances())) : attempt(api.balances()),
+    perf ? perf.measure("settings_ms", () => attempt(api.settings())) : attempt(api.settings()),
+  ]);
   if (!(b instanceof ApiError)) setBalances(b);
   if (!(s instanceof ApiError)) Object.assign(settings, s);
+  return !(b instanceof ApiError || s instanceof ApiError);
 }
 
 /** 打开、登录后：取目录、设置、余额，再把当期和上一期要的年份取齐才进页面，免得先闪一下空数据。 */
-export async function boot() {
+export async function boot(kind: BootKind = "retry") {
+  const perf = webPerformance(kind);
   app.phase = "loading";
-  const [c, s, b] = await Promise.all([attempt(api.catalog()), attempt(api.settings()), attempt(api.balances())]);
-  const failed = [c, s, b].find((r) => r instanceof ApiError);
-  if (failed) {
-    if (failed.status !== 401) [app.phase, app.failure] = ["failed", failed.message];
-    return;
+  try {
+    const [c, s, b] = await Promise.all([
+      perf.measure("catalog_ms", () => attempt(api.catalog())),
+      perf.measure("settings_ms", () => attempt(api.settings())),
+      perf.measure("balances_ms", () => attempt(api.balances())),
+    ]);
+    const failed = [c, s, b].find((r) => r instanceof ApiError);
+    if (failed) {
+      if (failed.status !== 401) [app.phase, app.failure] = ["failed", failed.message];
+      return;
+    }
+    app.catalog = c as Catalog;
+    Object.assign(settings, s);
+    const updated = checkUpdated(settings.version);
+    if (updated) toast(updated);
+    setBalances(b as Balances);
+    app.period = currentPeriod();
+    following = true;
+    const got = await perf.measure("entries_ms", () => Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]));
+    if (app.phase !== "loading") return;
+    if (got.every(Boolean)) app.phase = "ready";
+    else [app.phase, app.failure] = ["failed", "账目没取到，请重试"];
+  } finally {
+    void perf.report(app.phase === "loading" ? "failed" : app.phase).catch(() => {});
   }
-  app.catalog = c as Catalog;
-  Object.assign(settings, s);
-  const updated = checkUpdated(settings.version);
-  if (updated) toast(updated);
-  setBalances(b as Balances);
-  app.period = currentPeriod();
-  following = true;
-  const got = await Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]);
-  if (app.phase !== "loading") return;
-  if (got.every(Boolean)) app.phase = "ready";
-  else [app.phase, app.failure] = ["failed", "账目没取到，请重试"];
 }
 
 /** 登录成功返回空，失败返回给人看的原因。登录的 401、409 是表单上的错，不走 `attempt` 的回登录页、重取目录。 */
@@ -132,7 +147,7 @@ export async function login(username: string, password: string): Promise<string 
     if (e instanceof ApiError) return e.message;
     throw e;
   }
-  await boot();
+  await boot("login");
   return null;
 }
 
@@ -151,8 +166,19 @@ export async function logout() {
 /** 网页回到前台：快捷指令可能记过账，重取目录、设置、余额和已取过的年份。 */
 export async function refresh() {
   if (app.phase !== "ready") return;
-  await Promise.all([reloadCatalog(), refreshTotals(), ...app.years.map(fetchYear)]);
-  if (following) app.period = currentPeriod(isYear(app.period));
+  const perf = webPerformance("resume");
+  let ok = false;
+  try {
+    const [catalog, totals, years] = await Promise.all([
+      perf.measure("catalog_ms", reloadCatalog),
+      refreshTotals(perf),
+      perf.measure("entries_ms", () => Promise.all(app.years.map(fetchYear))),
+    ]);
+    if (following) app.period = currentPeriod(isYear(app.period));
+    ok = catalog && totals && years.every(Boolean);
+  } finally {
+    void perf.report(String(app.phase) === "login" ? "login" : ok ? "ready" : "failed").catch(() => {});
+  }
 }
 
 const yearOf = (iso: string) => new Date(iso).getFullYear();
