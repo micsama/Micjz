@@ -90,23 +90,6 @@ enum ResourceKind {
 }
 
 #[derive(Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NavigationType {
-    Navigate,
-    Reload,
-    BackForward,
-    Prerender,
-}
-
-#[derive(Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum PeriodGuess {
-    None,
-    Hit,
-    Miss,
-}
-
-#[derive(Deserialize, serde::Serialize)]
 struct ResourceTiming {
     start_ms: u32,
     duration_ms: u32,
@@ -129,7 +112,6 @@ struct NavigationPerformance {
     dns_ms: u32,
     connect_ms: u32,
     server_wait_ms: Option<u32>,
-    navigation_type: NavigationType,
     /// 导航起点到浏览器发出 HTML 请求；连接复用时这段是浏览器内部排队。
     request_at_ms: Option<u32>,
     #[serde(flatten)]
@@ -153,7 +135,6 @@ struct WebPerformance {
     navigation: Option<NavigationPerformance>,
     resource_count: u32,
     resources: Vec<ResourcePerformance>,
-    period_guess: Option<PeriodGuess>,
 }
 
 async fn web_performance(

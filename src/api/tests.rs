@@ -1004,15 +1004,15 @@ async fn web_performance_accepts_detailed_timing() {
         "transfer_bytes":900,"encoded_bytes":600,"decoded_bytes":986});
     let mut navigation = timing.clone();
     navigation.as_object_mut().unwrap().extend(
-        json!({"dns_ms":0,"connect_ms":0,"server_wait_ms":90,"navigation_type":"navigate","request_at_ms":80})
-        .as_object()
-        .unwrap()
-        .clone(),
+        json!({"dns_ms":0,"connect_ms":0,"server_wait_ms":90,"request_at_ms":80})
+            .as_object()
+            .unwrap()
+            .clone(),
     );
     let mut resource = timing.clone();
     resource["label"] = json!("entries");
     let report = json!({"kind":"startup","outcome":"ready","standalone":true,"total_ms":300,"paint_ms":350,
-        "before_boot_ms":200,"navigation":navigation,"resource_count":1,"resources":[resource],"period_guess":"hit"});
+        "before_boot_ms":200,"navigation":navigation,"resource_count":1,"resources":[resource]});
     let resp = s
         .api(POST, "web-performance")
         .json(&report)
@@ -1021,7 +1021,7 @@ async fn web_performance_accepts_detailed_timing() {
         .unwrap();
     assert_eq!(resp.status(), 204, "{}", resp.text().await.unwrap());
     let mut bad = report;
-    bad["period_guess"] = json!("maybe");
+    bad["kind"] = json!("maybe");
     assert_eq!(s.web(POST, "web-performance", bad).await.0, 400);
 }
 

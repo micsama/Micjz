@@ -4,7 +4,6 @@ export type BootKind = "startup" | "login" | "retry";
 type Kind = BootKind | "resume";
 type Outcome = "ready" | "login" | "failed";
 type Stage = "catalog_ms" | "settings_ms" | "entries_ms" | "balances_ms";
-type PeriodGuess = "none" | "hit" | "miss";
 
 function timing(entry: PerformanceResourceTiming, origin: number) {
   return {
@@ -44,7 +43,6 @@ export function webPerformance(kind: Kind) {
   const began = performance.now();
   const started = kind === "startup" ? 0 : began;
   const stages: Partial<Record<Stage, number>> = {};
-  let period_guess: PeriodGuess | undefined;
 
   return {
     async measure<T>(stage: Stage, run: () => Promise<T>): Promise<T> {
@@ -54,9 +52,6 @@ export function webPerformance(kind: Kind) {
       } finally {
         stages[stage] = Math.round(performance.now() - at);
       }
-    },
-    periodGuess(guess: PeriodGuess) {
-      period_guess = guess;
     },
     async report(outcome: Outcome) {
       const total_ms = Math.round(performance.now() - started);
@@ -89,13 +84,11 @@ export function webPerformance(kind: Kind) {
                   dns_ms: Math.round(navigation.domainLookupEnd - navigation.domainLookupStart),
                   connect_ms: Math.round(navigation.connectEnd - navigation.connectStart),
                   server_wait_ms: navigation.responseStart ? Math.round(navigation.responseStart - navigation.requestStart) : undefined,
-                  navigation_type: navigation.type,
                   request_at_ms: navigation.requestStart ? Math.round(navigation.requestStart) : undefined,
                 }
               : undefined,
           resource_count: resources.length,
           resources: resources.slice(0, 24),
-          period_guess,
           ...stages,
         }),
         keepalive: true,

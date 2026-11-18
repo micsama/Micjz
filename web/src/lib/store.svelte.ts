@@ -144,7 +144,6 @@ export async function boot(kind: BootKind = "retry") {
       app.period = currentPeriod();
       following = true;
       const hit = early !== undefined && guess === settings.cycle_day;
-      perf.periodGuess(guess === null ? "none" : hit ? "hit" : "miss");
       return hit ? early : perf.measure("entries_ms", () => want(app.period));
     });
     const [c, got] = await Promise.all([catalog, firstPeriod]);
