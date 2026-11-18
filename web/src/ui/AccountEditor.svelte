@@ -27,13 +27,10 @@
   let error = $state<{ at: "name" | "card"; text: string } | null>(null);
   let nameInput = $state<HTMLInputElement>();
   let numberInput = $state<HTMLInputElement>();
-  let brandRow = $state<HTMLDivElement>();
 
   onMount(async () => {
     await tick();
     if (!old) nameInput?.focus();
-    // 机构是一行横滑，选中的可能在屏幕外。
-    brandRow?.querySelector(".on")?.scrollIntoView({ inline: "center", block: "nearest" });
   });
 
   function typed() {
@@ -87,7 +84,7 @@
 
 <div class="body">
   <div class="name">
-    <AccountLogo account={{ name: name || "?", brand }} size={44} />
+    <AccountLogo account={{ name: name || "?", brand }} size={34} />
     <input
       bind:this={nameInput}
       bind:value={name}
@@ -99,25 +96,26 @@
   </div>
   {#if error?.at === "name"}<p class="hint bad">{error.text}</p>{/if}
 
-  <h3>机构</h3>
-  <div class="brands" bind:this={brandRow}>
+  <div class="brands" aria-label="机构">
     {#each LOGOS as [b] (b)}
       <button class:on={brand === b} onclick={() => pick(b)}>
-        <AccountLogo account={{ name: b, brand: b }} size={38} />
+        <AccountLogo account={{ name: b, brand: b }} size={28} />
         <small>{b}</small>
       </button>
     {/each}
     <button class:on={brand === null} onclick={() => pick(null)}>
-      <AccountLogo account={{ name: name || "其", brand: null }} size={38} />
+      <AccountLogo account={{ name: name || "其", brand: null }} size={28} />
       <small>其他</small>
     </button>
   </div>
 
-  <h3>银行卡</h3>
-  <div class="seg">
-    {#each [["none", "无"], ["debit", "储蓄卡"], ["credit", "信用卡"]] as [k, label] (k)}
-      <button class:on={cardType === k} onclick={() => setCard(k as typeof cardType)}>{label}</button>
-    {/each}
+  <div class="row">
+    <span>银行卡</span>
+    <div class="seg">
+      {#each [["none", "无"], ["debit", "储蓄卡"], ["credit", "信用卡"]] as [k, label] (k)}
+        <button class:on={cardType === k} onclick={() => setCard(k as typeof cardType)}>{label}</button>
+      {/each}
+    </div>
   </div>
   {#if cardType !== "none"}
     <input
@@ -125,22 +123,23 @@
       bind:this={numberInput}
       bind:value={number}
       inputmode="numeric"
-      placeholder="完整卡号"
+      placeholder="完整卡号，模型只看尾号"
       enterkeyhint="done"
       onkeydown={(e) => e.key === "Enter" && submit()}
       oninput={() => (error = null)}
     />
   {/if}
   {#if error?.at === "card"}<p class="hint bad">{error.text}</p>{/if}
-  <h3>余额</h3>
-  <div class="seg">
-    {#each [[false, "自己的钱"], [true, "外部，不记余额"]] as const as [k, label] (label)}
-      <button class:on={external === k} onclick={() => (external = k)}>{label}</button>
-    {/each}
-  </div>
-  {#if external}<p class="hint">如「公司付」：餐补照常算支出，不扣自己的余额，不进净资产，不能平账。</p>{/if}
 
-  <p class="hint">识别时模型看到账户名、机构、卡类型和卡号尾号；完整卡号只存在自己的库里。</p>
+  <div class="row">
+    <span>余额</span>
+    <div class="seg">
+      {#each [[false, "自己的钱"], [true, "外部不记"]] as const as [k, label] (label)}
+        <button class:on={external === k} onclick={() => (external = k)}>{label}</button>
+      {/each}
+    </div>
+  </div>
+  {#if external}<p class="hint">如「公司付」：照常算支出，不扣余额、不进净资产。</p>{/if}
 
   {#if old}
     <button class="remove" onclick={remove}>删除账户</button>
@@ -150,58 +149,50 @@
 <style>
   .body {
     display: grid;
-    gap: 10px;
+    gap: 8px;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding: 4px 16px 12px;
-  }
-  h3 {
-    margin: 10px 4px -2px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--label2);
+    padding: 2px 16px 8px;
   }
   .name {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 8px 8px 10px;
+    gap: 10px;
+    padding: 6px 8px;
     border-radius: var(--radius-group);
     background: var(--card);
   }
   .name input {
     flex: 1;
     min-width: 0;
-    height: 40px;
+    height: 34px;
     padding: 0;
+    border: 0;
+    outline: none;
     background: none;
-    font-size: 18px;
+    color: var(--label);
+    font: inherit;
+    font-size: 17px;
     font-weight: 600;
     letter-spacing: 0;
   }
   .brands {
-    display: flex;
-    gap: 4px;
-    padding: 8px 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 2px;
+    padding: 4px;
     border-radius: var(--radius-group);
     background: var(--card);
   }
-  .brands::-webkit-scrollbar {
-    display: none;
-  }
   .brands button {
-    flex: none;
-    width: 62px;
     display: grid;
     justify-items: center;
-    gap: 4px;
-    padding: 6px 0;
+    gap: 2px;
+    padding: 4px 0;
     border: 0;
-    border-radius: 12px;
+    border-radius: 10px;
     background: none;
     color: var(--label);
     font: inherit;
@@ -212,18 +203,32 @@
     box-shadow: inset 0 0 0 1.5px var(--tint);
   }
   .brands small {
-    font-size: 11px;
+    font-size: 10px;
     white-space: nowrap;
   }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .row > span {
+    flex: none;
+    width: 3.2em;
+    padding-left: 4px;
+    font-size: 14px;
+    color: var(--label2);
+  }
   .seg {
+    flex: 1;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
     padding: 2px;
     border-radius: 9px;
     background: var(--fill);
   }
   .seg button {
-    height: 32px;
+    height: 30px;
     border: 0;
     border-radius: 7px;
     background: none;
@@ -238,34 +243,33 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
     font-weight: 600;
   }
-  input {
-    height: 50px;
-    padding: 0 16px;
+  .num {
+    height: 42px;
+    padding: 0 14px;
     border: 0;
     border-radius: var(--radius-group);
     background: var(--card);
     color: var(--label);
     font: inherit;
-    font-size: 19px;
+    font-size: 17px;
     letter-spacing: 0.04em;
     outline: none;
   }
   .hint {
     margin: 0 4px;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--label2);
   }
   .bad {
     color: var(--red);
   }
   .remove {
-    margin-top: 8px;
-    height: 48px;
+    height: 40px;
     border: 0;
     border-radius: var(--radius-group);
     background: var(--card);
     color: var(--red);
     font: inherit;
-    font-size: 16px;
+    font-size: 15px;
   }
 </style>
