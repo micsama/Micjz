@@ -4,7 +4,7 @@ use crate::db::{
     Error,
     entries::{self, required_nullable},
 };
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 pub struct Account {
@@ -12,6 +12,8 @@ pub struct Account {
     pub name: String,
     pub brand: Option<String>,
     pub(super) card: Option<Card>,
+    /// 别人的钱（如公司付）：不进净资产、不能平账。
+    pub external: bool,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -21,7 +23,7 @@ pub(super) struct Card {
 }
 pub fn list(conn: &Connection) -> Result<Vec<Account>, Error> {
     Ok(conn
-        .prepare("SELECT id,name,brand,card_type,card_number FROM accounts ORDER BY position,id")?
+        .prepare("SELECT id,name,brand,card_type,card_number,external FROM accounts ORDER BY position,id")?
         .query_map([], |r| {
             let t: Option<String> = r.get(3)?;
             let card = match t.as_deref() {
@@ -42,6 +44,7 @@ pub fn list(conn: &Connection) -> Result<Vec<Account>, Error> {
                         })
                     })
                     .transpose()?,
+                external: r.get(5)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?)
@@ -54,6 +57,7 @@ pub struct AccountInput {
     brand: Option<String>,
     #[serde(deserialize_with = "required_nullable")]
     card: Option<Card>,
+    external: bool,
 }
 impl AccountInput {
     fn parse(mut self) -> Result<Self, Error> {
@@ -77,6 +81,14 @@ pub fn require(conn: &Connection, id: i64) -> Result<(), Error> {
     }
     Ok(())
 }
+/// 账户是否外部账户；不存在报 404。
+pub fn external(conn: &Connection, id: i64) -> Result<bool, Error> {
+    conn.query_row("SELECT external FROM accounts WHERE id=?1", [id], |r| {
+        r.get(0)
+    })
+    .optional()?
+    .ok_or_else(|| Error::Missing("账户不存在".into()))
+}
 pub fn save(tx: &Transaction<'_>, id: Option<i64>, v: AccountInput) -> Result<Account, Error> {
     let v = v.parse()?;
     if let Some(id) = id {
@@ -93,15 +105,15 @@ pub fn save(tx: &Transaction<'_>, id: Option<i64>, v: AccountInput) -> Result<Ac
     let number = v.card.as_ref().map(|c| &c.number);
     let id = if let Some(id) = id {
         tx.execute(
-            "UPDATE accounts SET name=?2,brand=?3,card_type=?4,card_number=?5 WHERE id=?1",
-            params![id, v.name, v.brand, ct, number],
+            "UPDATE accounts SET name=?2,brand=?3,card_type=?4,card_number=?5,external=?6 WHERE id=?1",
+            params![id, v.name, v.brand, ct, number, v.external],
         )?;
         id
     } else {
         tx.execute(
-            "INSERT INTO accounts (name, brand, card_type, card_number, position)
-             VALUES (?1, ?2, ?3, ?4, (SELECT coalesce(max(position), 0)+1 FROM accounts))",
-            params![v.name, v.brand, ct, number],
+            "INSERT INTO accounts (name, brand, card_type, card_number, external, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, (SELECT coalesce(max(position), 0)+1 FROM accounts))",
+            params![v.name, v.brand, ct, number, v.external],
         )?;
         tx.last_insert_rowid()
     };
@@ -110,6 +122,7 @@ pub fn save(tx: &Transaction<'_>, id: Option<i64>, v: AccountInput) -> Result<Ac
         name: v.name,
         brand: v.brand,
         card: v.card,
+        external: v.external,
     })
 }
 

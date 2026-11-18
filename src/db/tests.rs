@@ -100,9 +100,11 @@ fn entry_kinds_and_balances() {
     insert("c", "expense", "1200", "drink", 1, "NULL").unwrap();
     insert("d", "transfer", "3000", "", 2, "1").unwrap();
     insert("e", "adjust", "-500", "", 1, "NULL").unwrap();
+    insert("f", "expense", "-200", "drink", 1, "NULL").unwrap();
 
     for (why, kind, amount, category, account, to) in [
-        ("支出金额须为正", "expense", "-1", "drink", 1, "NULL"),
+        ("收入金额须为正", "income", "-1", "salary", 1, "NULL"),
+        ("支出不能为 0", "expense", "0", "drink", 1, "NULL"),
         ("平账差额不能为 0", "adjust", "0", "", 1, "NULL"),
         ("金额必须是整数", "expense", "1.5", "drink", 1, "NULL"),
         ("支出必须有分类", "expense", "1", "", 1, "NULL"),
@@ -127,7 +129,7 @@ fn entry_kinds_and_balances() {
     assert_eq!(
         balances,
         [
-            ("微信".to_owned(), 3000 - 1200 - 500),
+            ("微信".to_owned(), 3000 - 1200 - 500 + 200),
             ("银行卡".to_owned(), 10000 + 5000 - 3000)
         ]
     );

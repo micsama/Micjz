@@ -22,7 +22,8 @@
   const reorder = new Reorder(moveAccount);
 
   // 财富页只看此刻：净资产和各账户余额，不随周期变；某段时间的收支点进账户看。
-  const bal = (a: Account) => balanceOf(a.id);
+  // 外部账户是别人的钱，余额没有意义，不进净资产。
+  const bal = (a: Account) => (a.external ? 0 : balanceOf(a.id));
   const assets = $derived(app.catalog.accounts.filter((a) => bal(a) > 0));
   const plus = $derived(assets.reduce((s, a) => s + bal(a), 0));
   const minus = $derived(app.catalog.accounts.reduce((s, a) => s + Math.min(0, bal(a)), 0));
@@ -34,14 +35,15 @@
   function actions(a: Account): SwipeAction[] {
     const out: SwipeAction[] = [];
     if (a.card) out.push({ icon: "copy", label: "复制卡号", run: () => copy(a.card!.number, "卡号") });
-    out.push({
-      icon: "scale",
-      label: "平账",
-      run: () => {
-        holdKeyboard("decimal");
-        adjusting = a;
-      },
-    });
+    if (!a.external)
+      out.push({
+        icon: "scale",
+        label: "平账",
+        run: () => {
+          holdKeyboard("decimal");
+          adjusting = a;
+        },
+      });
     out.push({ icon: "pencil", label: "编辑账户", run: () => (editing = a) });
     return out;
   }
@@ -114,7 +116,11 @@
                 >
                 <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
               </span>
-              <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
+              {#if a.external}
+                <span class="right">不记余额</span>
+              {:else}
+                <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
+              {/if}
               <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
             </button>
           </SwipeRow>

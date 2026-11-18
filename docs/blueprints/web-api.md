@@ -89,14 +89,14 @@
 ```json
 {
   "categories": [{ "id": 1, "kind": "expense", "parent_id": null, "name": "🍜 餐饮", "key": "food" }],
-  "accounts": [{ "id": 1, "name": "微信", "brand": "微信", "card": null },
-               { "id": 3, "name": "工资卡", "brand": "招商银行", "card": { "type": "debit", "number": "6225880012341234" } }],
+  "accounts": [{ "id": 1, "name": "微信", "brand": "微信", "card": null, "external": false },
+               { "id": 3, "name": "工资卡", "brand": "招商银行", "card": { "type": "debit", "number": "6225880012341234" }, "external": false }],
   "tags": [{ "id": 1, "name": "恋爱" }]
 }
 ```
 
 - `categories`：平铺，一级和二级都在里面；同一上级之下按 `position` 排。
-- `accounts`：按 `position` 排，第一个是默认账户。`card` 为空或 `{type, number}`，`number` 是完整卡号。
+- `accounts`：按 `position` 排，第一个是默认账户。`card` 为空或 `{type, number}`，`number` 是完整卡号。`external` 为真是外部账户（v9，见[表结构 v9](schema-9.md)）。
 - `tags`：按 `id` 排。
 - 前端打开时取一次；收到 409、回到前台时重取（§3.4）。
 
@@ -328,7 +328,7 @@ ALTER TABLE accounts ADD COLUMN brand TEXT;   -- 所属机构；空为「其他�
 
 | 接口 | 请求 | 成功 | 失败 |
 |---|---|---|---|
-| `POST /api/accounts` | `{ "name", "brand", "card" }`（`card` 为 `null` 或 `{ "type": "debit"\|"credit", "number" }`） | 201，账户（§3.1 形状），排在最后 | 409「已经有同名账户」 |
+| `POST /api/accounts` | `{ "name", "brand", "card", "external" }`（`card` 为 `null` 或 `{ "type": "debit"\|"credit", "number" }`） | 201，账户（§3.1 形状），排在最后 | 409「已经有同名账户」 |
 | `PUT /api/accounts/:id` | 同上，整体替换 | 200，账户 | 404；409 重名 |
 | `DELETE /api/accounts/:id` | — | 204 | 404；409「还有 N 笔账目在用，不能删除」（`account_id` 或 `to_account_id` 引用都算）；409「至少保留一个账户」 |
 | `POST /api/accounts/:id/move` | `{ "to": 0 }`，从 0 开始的目标位置，超出范围夹到两端 | 200，`{ "accounts": [...] }` 全部账户的新顺序 | 404 |

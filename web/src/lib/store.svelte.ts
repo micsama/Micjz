@@ -3,7 +3,7 @@
 import { webPerformance, type BootKind } from "./performance";
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
 import { checkUpdated } from "./update.svelte";
-import { api, ApiError, type AccountInput, type CategoryInput, type EntryInput, type EntryPatch, type Settings } from "./api";
+import { api, ApiError, newEntryId, type AccountInput, type CategoryInput, type EntryInput, type EntryPatch, type Settings } from "./api";
 import { isYear, money, newestFirst, periodOf, periodRange, shiftPeriod, within } from "./format";
 import { holdKeyboard } from "../ui/nav.svelte";
 
@@ -409,6 +409,29 @@ export async function addEntry(id: string, fields: EntryInput): Promise<"new" | 
   app.stack = [];
   app.period = periodOf(e.occurred_at, settings.cycle_day);
   return r.existed ? "existed" : "new";
+}
+
+/**
+ * 退款：按原账的分类、账户、商家、备注、标签记一笔负支出，时间取现在，不关联原账。
+ * 记上后打开它的金额，默认全额，改成部分退款再点完成。要在手势里同步调用，键盘才弹得出来。
+ */
+export async function refund(e: Entry) {
+  holdKeyboard("decimal");
+  const id = newEntryId();
+  const saved = await addEntry(id, {
+    kind: "expense",
+    amount_cents: -e.amount_cents,
+    category_id: e.category_id,
+    account_id: e.account_id,
+    to_account_id: null,
+    merchant: e.merchant,
+    occurred_at: new Date().toISOString(),
+    note: e.note,
+    tag_ids: e.tag_ids,
+  });
+  if (!saved) return;
+  open(id);
+  app.sheet = { id, field: "amount_cents" };
 }
 
 /**

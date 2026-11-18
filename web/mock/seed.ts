@@ -92,10 +92,10 @@ for (const [kind, [name, key], subs] of TREE) {
 export const CATALOG: Catalog = {
   categories,
   accounts: [
-    { id: 1, name: "微信", brand: "微信", card: null },
-    { id: 2, name: "工资卡", brand: "招商银行", card: { type: "debit", number: "6214888800001234" } },
-    { id: 3, name: "招行信用卡", brand: "招商银行", card: { type: "credit", number: "6225888800005678" } },
-    { id: 4, name: "支付宝", brand: "支付宝", card: null },
+    { id: 1, name: "微信", brand: "微信", card: null, external: false },
+    { id: 2, name: "工资卡", brand: "招商银行", card: { type: "debit", number: "6214888800001234" }, external: false },
+    { id: 3, name: "招行信用卡", brand: "招商银行", card: { type: "credit", number: "6225888800005678" }, external: false },
+    { id: 4, name: "支付宝", brand: "支付宝", card: null, external: false },
   ],
   tags: [
     { id: 1, name: "恋爱" },

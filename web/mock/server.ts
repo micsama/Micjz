@@ -51,7 +51,7 @@ export function createMock(): (req: Request) => Promise<Response | null> {
 
   /** §5.1：整笔校验，记一笔和改共用。 */
   function check(e: Entry) {
-    const signed = e.kind === "adjust";
+    const signed = e.kind === "adjust" || e.kind === "expense";
     if (!Number.isSafeInteger(e.amount_cents) || Math.abs(e.amount_cents) > MAX || (signed ? e.amount_cents === 0 : e.amount_cents <= 0))
       throw new Fail(400, "金额不对");
     if (e.kind === "expense" || e.kind === "income") {
@@ -86,7 +86,7 @@ export function createMock(): (req: Request) => Promise<Response | null> {
     const brand = text(b.brand ?? null);
     const card = b.card as Account["card"];
     if (card && !/^\d{4,}$/.test(card.number.replace(/\s/g, ""))) throw new Fail(400, "卡号至少 4 位数字");
-    return { name, brand, card: card ? { type: card.type, number: card.number.replace(/\s/g, "") } : null };
+    return { name, brand, card: card ? { type: card.type, number: card.number.replace(/\s/g, "") } : null, external: b.external === true };
   }
 
   const nameOf = (v: unknown) => {
@@ -291,6 +291,7 @@ export function createMock(): (req: Request) => Promise<Response | null> {
       }
       case "POST accounts/:id/adjust": {
         const a = account(Number(id));
+        if (a.external) throw new Fail(400, "外部账户不记余额，不能平账");
         const target = b.balance_cents as number;
         if (!Number.isSafeInteger(target) || Math.abs(target) > MAX) throw new Fail(400, "余额不对");
         const diff = target - balance(a.id);

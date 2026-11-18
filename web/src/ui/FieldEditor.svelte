@@ -20,7 +20,7 @@
   let input = $state<HTMLInputElement>();
 
   onMount(async () => {
-    if (key === "amount_cents") text = yuanInput(entry.amount_cents);
+    if (key === "amount_cents") text = yuanInput(signed ? entry.amount_cents : Math.abs(entry.amount_cents));
     if (key === "merchant" || key === "note") text = entry[key] ?? "";
     if (key === "occurred_at") text = localInput(entry.occurred_at);
     if (key === "occurred_at") return;
@@ -42,7 +42,8 @@
         input?.animate([{ translate: "0" }, { translate: "-8px" }, { translate: "8px" }, { translate: "0" }], { duration: 260 });
         return;
       }
-      save({ amount_cents: cents });
+      // 退款（负的支出）输入不带符号的数，保留负号。
+      save({ amount_cents: !signed && entry.amount_cents < 0 ? -cents : cents });
     } else if (key === "merchant" || key === "note") {
       save({ [key]: text.trim() || null });
     } else if (key === "occurred_at") {

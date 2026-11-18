@@ -22,6 +22,7 @@
   let picked = $state(old !== null);
   let cardType = $state<"none" | "debit" | "credit">(old?.card?.type ?? "none");
   let number = $state(old?.card?.number.replace(/(\d{4})(?=\d)/g, "$1 ") ?? "");
+  let external = $state(old?.external ?? false);
   /** 校验错误，显示在出错的那一项下面。 */
   let error = $state<{ at: "name" | "card"; text: string } | null>(null);
   let nameInput = $state<HTMLInputElement>();
@@ -63,7 +64,7 @@
     if (cardType !== "none" && !/^\d{12,19}$/.test(digits)) return void (error = { at: "card", text: "卡号是 12～19 位数字" });
     const card = cardType === "none" ? null : { type: cardType, number: digits };
     busy = true;
-    const err = await saveAccount({ id: old?.id ?? 0, name: n, brand, card });
+    const err = await saveAccount({ id: old?.id ?? 0, name: n, brand, card, external });
     busy = false;
     if (err) return void (error = { at: "name", text: err });
     onclose();
@@ -128,6 +129,14 @@
     />
   {/if}
   {#if error?.at === "card"}<p class="hint bad">{error.text}</p>{/if}
+  <h3>余额</h3>
+  <div class="seg">
+    {#each [[false, "自己的钱"], [true, "外部，不记余额"]] as const as [k, label] (label)}
+      <button class:on={external === k} onclick={() => (external = k)}>{label}</button>
+    {/each}
+  </div>
+  {#if external}<p class="hint">如「公司付」：餐补照常算支出，不扣自己的余额，不进净资产，不能平账。</p>{/if}
+
   <p class="hint">识别时模型看到账户名、机构、卡类型和卡号尾号；完整卡号只存在自己的库里。</p>
 
   {#if old}

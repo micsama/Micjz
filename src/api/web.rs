@@ -474,7 +474,9 @@ async fn adjust(
         .unwrap_or_else(|| flow::stamp(flow::now()));
     let mut conn = s.db.conn();
     let tx = conn.transaction()?;
-    accounts::require(&tx, id)?;
+    if accounts::external(&tx, id)? {
+        return Err(invalid("外部账户不记余额，不能平账"));
+    }
     let difference = v
         .balance_cents
         .checked_sub(entries::balance(&tx, id)?)

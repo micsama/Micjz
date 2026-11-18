@@ -556,6 +556,18 @@ async fn web_entries_validation_patch_and_balances() {
             .0,
         200
     );
+    let mut refund = input.clone();
+    refund["id"] = json!(uuid::Uuid::now_v7().to_string());
+    refund["amount_cents"] = json!(-1000);
+    let (status, r) = s.web(POST, "entries", refund.clone()).await;
+    assert_eq!(status, 201, "{r}");
+    assert_eq!(r["amount_cents"], -1000);
+    let rpath = format!("entries/{}", r["id"].as_str().unwrap());
+    assert_eq!(
+        s.web(PATCH, &rpath, json!({"amount_cents":-300})).await.0,
+        200
+    );
+    assert_eq!(s.api(DELETE, &rpath).send().await.unwrap().status(), 204);
     let mut transfer = input.clone();
     transfer["id"] = json!(uuid::Uuid::now_v7().to_string());
     transfer["kind"] = json!("transfer");
@@ -611,8 +623,7 @@ async fn web_entries_validation_patch_and_balances() {
 async fn web_accounts_adjust_settings() {
     let s = server().await;
     let c = s.catalog().await;
-    let account =
-        json!({"name":" 新卡 ","brand":" 招商银行 ","card":{"type":"debit","number":"1234 5678"}});
+    let account = json!({"name":" 新卡 ","brand":" 招商银行 ","card":{"type":"debit","number":"1234 5678"},"external":false});
     let (status, a) = s.web(POST, "accounts", account.clone()).await;
     assert_eq!(status, 201, "{a}");
     assert_eq!(a["name"], "新卡");
@@ -667,6 +678,29 @@ async fn web_accounts_adjust_settings() {
         200
     );
     assert_eq!(s.web(PATCH, &apath, json!({"amount_cents":0})).await.0, 400);
+    let mut company = account.clone();
+    company["name"] = json!("公司付");
+    company["card"] = json!(null);
+    company["external"] = json!(true);
+    let (status, ext) = s.web(POST, "accounts", company).await;
+    assert_eq!(status, 201, "{ext}");
+    assert_eq!(ext["external"], true);
+    let (status, err) = s
+        .web(
+            POST,
+            &format!("accounts/{}/adjust", ext["id"]),
+            json!({"balance_cents":0}),
+        )
+        .await;
+    assert_eq!(status, 400, "{err}");
+    assert_eq!(
+        s.api(DELETE, &format!("accounts/{}", ext["id"]))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
     let conn = rusqlite::Connection::open(&s.db_path).unwrap();
     conn.execute("DELETE FROM entries", []).unwrap();
     assert_eq!(s.api(DELETE, &path).send().await.unwrap().status(), 204);

@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Entry } from "../lib/types";
-  import { open, remove } from "../lib/store.svelte";
+  import { open, refund, remove } from "../lib/store.svelte";
+  import { isRefund } from "../lib/kinds";
+  import type { SwipeAction } from "./SwipeRow.svelte";
   import { byDay } from "../lib/query";
   import { dayLabel, money, time } from "../lib/format";
   import { view } from "../lib/view";
@@ -8,17 +10,21 @@
   import Mark from "./Mark.svelte";
   let { list, account }: { list: Entry[]; account?: number } = $props();
   const days = $derived(byDay(list));
+  const del = (e: Entry): SwipeAction => ({ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) });
+  // 支出可以左滑退款；退款本身不能再退。
+  const actions = (e: Entry): SwipeAction[] =>
+    e.kind === "expense" && !isRefund(e) ? [{ icon: "arrow-in", label: "退款", run: () => refund(e) }, del(e)] : [del(e)];
 </script>
 
 <div class="entry-days">
   {#each days as g (g.day)}
     <h3 class="day">
-      <span>{dayLabel(g.at)}</span>{#if g.spent}<span class="num">支出 {money(g.spent)}</span>{/if}
+      <span>{dayLabel(g.at)}</span>{#if g.spent > 0}<span class="num">支出 {money(g.spent)}</span>{/if}
     </h3>
     <div class="group">
       {#each g.entries as e (e.id)}
         {@const v = view(e, account)}
-        <SwipeRow actions={[{ icon: "trash", label: "删除", danger: true, run: () => remove(e.id) }]}>
+        <SwipeRow actions={actions(e)}>
           <button class="row" onclick={() => open(e.id)}>
             <span class="icon" style:--c={v.color}><Mark mark={v.mark} /></span>
             <span class="main">

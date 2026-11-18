@@ -89,7 +89,7 @@ impl EntryInput {
         let v = &mut self;
         if v.amount_cents == 0
             || v.amount_cents.unsigned_abs() > MAX_AMOUNT as u64
-            || (v.kind != EntryKind::Adjust && v.amount_cents < 0)
+            || (matches!(v.kind, EntryKind::Income | EntryKind::Transfer) && v.amount_cents < 0)
         {
             return Err(Error::Invalid("金额超出范围或为零".into()));
         }

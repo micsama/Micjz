@@ -20,6 +20,8 @@ export interface Account {
   /** 所属机构，取 `LOGOS` 里的名称；决定标志，也会告诉模型。空为「其他」。 */
   brand: string | null;
   card: { type: "debit" | "credit"; number: string } | null;
+  /** 别人的钱（如公司付）：余额没有意义，不进净资产、不能平账。 */
+  external: boolean;
 }
 
 export interface Tag {
@@ -40,7 +42,7 @@ export interface Entry {
   /** 截图来的才有，指向那次识别。 */
   recognition_id: string | null;
   kind: Kind;
-  /** 分；平账是带符号的差额，其余大于 0。 */
+  /** 分；平账是带符号的差额，负的支出是退款，其余大于 0。 */
   amount_cents: number;
   /** 支出、收入必填（最细一级），其余为空。 */
   category_id: number | null;

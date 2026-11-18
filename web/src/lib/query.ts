@@ -107,7 +107,11 @@ export function sumBy(list: Entry[], key: (e: Entry) => string | string[] | null
       sums.set(name, { cents: s.cents + e.amount_cents, count: s.count + 1 });
     }
   }
-  return [...sums].map(([name, s]) => ({ name, ...s })).sort((a, b) => b.cents - a.cents);
+  // 退款多于花销的项（如本期退了上期买的）合计为负，画不进占比，略去。
+  return [...sums]
+    .map(([name, s]) => ({ name, ...s }))
+    .filter((s) => s.cents > 0)
+    .sort((a, b) => b.cents - a.cents);
 }
 
 /** 支出按一级分类汇总，从大到小。 */

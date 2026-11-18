@@ -1,6 +1,6 @@
 // 一笔账怎么显示：图标、标题、副标题、金额和颜色。列表、详情、两个主题都从这里取，不各自判断类型。
 import type { Entry } from "./types";
-import { effect, KIND_LABEL } from "./kinds";
+import { effect, isRefund, KIND_LABEL } from "./kinds";
 import type { IconName } from "../ui/Icon.svelte";
 import { badge, money } from "./format";
 import { accountOf, app, categoryOf, topIndex, topOf } from "./store.svelte";
@@ -17,7 +17,7 @@ export interface View {
   /** 副标题的几段，主题自己决定分隔符。 */
   meta: string[];
   tags: string[];
-  /** 带不带符号由类型决定：收入 +，平账带自身符号，支出、转账不带。 */
+  /** 带不带符号由类型决定：收入、退款 +，平账带自身符号，支出、转账不带。 */
   amount: string;
   tone: "out" | "in" | "plain";
 }
@@ -42,17 +42,20 @@ export function view(e: Entry, account?: number): View {
     case "income": {
       const c = categoryOf(e.category_id)!;
       const top = topOf(c);
-      const income = e.kind === "income";
+      // 负的支出是退款：钱回来了，和收入一样显示。
+      const refund = isRefund(e);
+      const income = e.kind === "income" || refund;
       const name = (x: typeof c) => badge(x.name).text;
       // 一眼先看「花在哪类」，再看「买了什么、在哪买」；账户在详情里看。两样都没填才退回账户，免得副标题空着。
       const meta = [e.note, e.merchant].filter((x) => x !== null);
+      if (refund) meta.unshift("退款");
       return {
         mark: { text: badge(c.name).icon },
         color: color(topIndex(c)),
         title: c === top ? name(c) : `${name(top)} · ${name(c)}`,
         meta: meta.length ? meta : [accountName(e.account_id)],
         tags,
-        amount: money(e.amount_cents, income),
+        amount: money(refund ? -e.amount_cents : e.amount_cents, income),
         tone: income ? "in" : "out",
       };
     }

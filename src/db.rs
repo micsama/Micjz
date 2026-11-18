@@ -46,6 +46,8 @@ CREATE TABLE accounts (
   brand       TEXT,
   card_type   TEXT CHECK (card_type IN ('debit', 'credit')),
   card_number TEXT,
+  -- 别人的钱（如公司付）：余额没有意义，不进净资产、不能平账。
+  external    INTEGER NOT NULL DEFAULT 0 CHECK (external IN (0, 1)),
   CHECK ((card_type IS NULL) = (card_number IS NULL))
 ) STRICT;
 
@@ -73,12 +75,14 @@ CREATE TABLE recognitions (
 
 -- id 是账目自己的 ID；截图来的 recognition_id 指向那次识别，也是确认的幂等键。
 -- 支出、收入有分类（一级或二级，有二级也可只记一级）；转账从 account_id 到 to_account_id；平账的金额是差额，可正可负。
+-- 负的支出是退款：冲减所在分类，不关联原账。
 -- 时间一律 UTC（flow::stamp）。
 CREATE TABLE entries (
   id             TEXT PRIMARY KEY,
   recognition_id TEXT UNIQUE REFERENCES recognitions(draft_id),
   kind           TEXT NOT NULL CHECK (kind IN ('expense', 'income', 'transfer', 'adjust')),
-  amount_cents   INTEGER NOT NULL CHECK (amount_cents > 0 OR (kind = 'adjust' AND amount_cents <> 0)),
+  amount_cents   INTEGER NOT NULL
+                 CHECK (amount_cents > 0 OR (kind IN ('expense', 'adjust') AND amount_cents <> 0)),
   category_id    INTEGER REFERENCES categories(id),
   account_id     INTEGER NOT NULL REFERENCES accounts(id),
   to_account_id  INTEGER REFERENCES accounts(id),
