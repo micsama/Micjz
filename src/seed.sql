@@ -29,12 +29,11 @@ INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', 
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎧 配件外设', 'peripheral', 2 FROM categories WHERE key = 'digital';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🎮 娱乐', 'fun', 7);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🕹️ 游戏', 'game', 1 FROM categories WHERE key = 'fun';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎬 影音演出', 'show', 2 FROM categories WHERE key = 'fun';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎬 文娱兴趣', 'show', 2 FROM categories WHERE key = 'fun';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎡 景区乐园', 'park', 3 FROM categories WHERE key = 'fun';
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '💳 会员', 'membership', 8);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '💳 订阅与服务', 'membership', 8);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🤖 AI 工具', 'ai', 1 FROM categories WHERE key = 'membership';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '📺 影音会员', 'media', 2 FROM categories WHERE key = 'membership';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '☁️ 云和软件', 'software', 3 FROM categories WHERE key = 'membership';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '☁️ 其他订阅与服务', 'software', 2 FROM categories WHERE key = 'membership';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🎁 人情', 'social', 9);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🧧 红包', 'redpacket', 1 FROM categories WHERE key = 'social';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎀 礼物', 'gift', 2 FROM categories WHERE key = 'social';
