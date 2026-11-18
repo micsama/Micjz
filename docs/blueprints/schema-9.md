@@ -41,4 +41,4 @@ accounts.external INTEGER NOT NULL DEFAULT 0 CHECK (external IN (0, 1))
 
 - `accounts` 加列（`ALTER TABLE ADD COLUMN`，默认 0）。
 - `entries` 按新约束重建，数据原样复制，重建 `idx_entries_occurred`。
-- 现有的收入分类「↩️ 退款」不动，要不要转成负支出另行决定。
+- 现有的收入分类「↩️ 退款」不动。（之后已在线上手工移除，收入分类收为工资奖金、红包、二手变卖、回款、其他。）

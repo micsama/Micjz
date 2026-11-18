@@ -62,8 +62,8 @@ fn recent_time_uses_now() {
 
 #[test]
 fn income_key_must_match_kind() {
-    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"refund"}"#);
-    assert_eq!((d.kind, path(&d).as_str()), (Kind::Income, "↩️ 退款"));
+    let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"repayment"}"#);
+    assert_eq!((d.kind, path(&d).as_str()), (Kind::Income, "↩️ 回款"));
     let d = draft(r#"{"ok":true,"kind":"income","amount":"5","category":"drink"}"#);
     assert_eq!(path(&d), "✨ 其他", "支出 key 不能用在收入上");
 }

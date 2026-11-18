@@ -74,11 +74,10 @@ const TREE: [FlowKind, Node, Node[]][] = [
     ],
   ],
   ["expense", ["✨ 其他", "other"], []],
-  ["income", ["💰 工资", "salary"], []],
-  ["income", ["🏆 奖金", "bonus"], []],
+  ["income", ["💰 工资奖金", "salary"], []],
   ["income", ["🧧 红包", "redpacket_in"], []],
-  ["income", ["↩️ 退款", "refund"], []],
-  ["income", ["📈 理财", "investment"], []],
+  ["income", ["♻️ 二手变卖", "resale"], []],
+  ["income", ["↩️ 回款", "repayment"], []],
   ["income", ["✨ 其他", "other_in"], []],
 ];
 

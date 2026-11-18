@@ -42,12 +42,11 @@ INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense',
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🩺 看病', 'clinic', 1 FROM categories WHERE key = 'medical';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '💊 药品', 'medicine', 2 FROM categories WHERE key = 'medical';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '✨ 其他', 'other', 11);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '💰 工资', 'salary', 1);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '🏆 奖金', 'bonus', 2);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '🧧 红包', 'redpacket_in', 3);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '↩️ 退款', 'refund', 4);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '📈 理财', 'investment', 5);
-INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '✨ 其他', 'other_in', 6);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '💰 工资奖金', 'salary', 1);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '🧧 红包', 'redpacket_in', 2);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '♻️ 二手变卖', 'resale', 3);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '↩️ 回款', 'repayment', 4);
+INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('income', NULL, '✨ 其他', 'other_in', 5);
 INSERT INTO accounts (name, position) VALUES ('微信', 1);
 INSERT INTO accounts (name, position) VALUES ('银行卡', 2);
 INSERT INTO tags (name) VALUES ('恋爱');
