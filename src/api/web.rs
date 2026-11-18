@@ -96,10 +96,42 @@ enum ResourceKind {
 }
 
 #[derive(Deserialize, serde::Serialize)]
+enum Protocol {
+    #[serde(rename = "http/1.1")]
+    Http1,
+    #[serde(rename = "h2")]
+    H2,
+    #[serde(rename = "h3")]
+    H3,
+    #[serde(other, rename = "other")]
+    Other,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum NavigationType {
+    Navigate,
+    Reload,
+    BackForward,
+    Prerender,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PeriodGuess {
+    None,
+    Hit,
+    Miss,
+}
+
+#[derive(Deserialize, serde::Serialize)]
 struct ResourceTiming {
     start_ms: u32,
     duration_ms: u32,
     ttfb_ms: Option<u32>,
+    /// 相对本资源开始，浏览器发出请求的时刻。
+    request_at_ms: Option<u32>,
+    protocol: Option<Protocol>,
     download_ms: Option<u32>,
     transfer_bytes: u32,
     encoded_bytes: u32,
@@ -118,6 +150,17 @@ struct NavigationPerformance {
     dns_ms: u32,
     connect_ms: u32,
     server_wait_ms: Option<u32>,
+    navigation_type: NavigationType,
+    redirect_count: u32,
+    /// 以下都是相对导航起点的时刻，浏览器没记时为空。
+    worker_at_ms: Option<u32>,
+    fetch_at_ms: Option<u32>,
+    dns_at_ms: Option<u32>,
+    connect_at_ms: Option<u32>,
+    tls_at_ms: Option<u32>,
+    connect_end_ms: Option<u32>,
+    dom_interactive_ms: Option<u32>,
+    dom_content_loaded_ms: Option<u32>,
     #[serde(flatten)]
     timing: ResourceTiming,
 }
@@ -139,6 +182,7 @@ struct WebPerformance {
     navigation: Option<NavigationPerformance>,
     resource_count: u32,
     resources: Vec<ResourcePerformance>,
+    period_guess: Option<PeriodGuess>,
 }
 
 async fn web_performance(

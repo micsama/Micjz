@@ -996,3 +996,33 @@ async fn web_categories_and_tags() {
     assert_eq!(s.send(s.api(DELETE, &tpath)).await.0, 409);
     assert_eq!(s.web(PUT, "tags/99999", json!({"name":"x"})).await.0, 404);
 }
+
+#[tokio::test]
+async fn web_performance_accepts_detailed_timing() {
+    let s = server().await;
+    let timing = json!({"start_ms":0,"duration_ms":180,"ttfb_ms":170,"request_at_ms":80,"protocol":"h3",
+        "transfer_bytes":900,"encoded_bytes":600,"decoded_bytes":986});
+    let mut navigation = timing.clone();
+    navigation.as_object_mut().unwrap().extend(
+        json!({"dns_ms":0,"connect_ms":0,"server_wait_ms":90,"navigation_type":"navigate","redirect_count":0,
+            "fetch_at_ms":2,"connect_end_ms":2,"dom_interactive_ms":190,"dom_content_loaded_ms":200})
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
+    let mut resource = timing.clone();
+    resource["label"] = json!("entries");
+    resource["protocol"] = json!("spdy/3");
+    let report = json!({"kind":"startup","outcome":"ready","standalone":true,"total_ms":300,"paint_ms":350,
+        "before_boot_ms":200,"navigation":navigation,"resource_count":1,"resources":[resource],"period_guess":"hit"});
+    let resp = s
+        .api(POST, "web-performance")
+        .json(&report)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204, "{}", resp.text().await.unwrap());
+    let mut bad = report;
+    bad["period_guess"] = json!("maybe");
+    assert_eq!(s.web(POST, "web-performance", bad).await.0, 400);
+}

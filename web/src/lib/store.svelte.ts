@@ -29,6 +29,18 @@ interface Toast {
 
 const UNDO_MS = 4000;
 const HIDE = "micjz.hideBalance";
+/** 上次的记账周期日，只用来让启动时的当期账目和设置并行取；设置回来后核对，不一致就按新的重取。 */
+const CYCLE = "micjz.cycleDay";
+
+function rememberedCycleDay(): number | null {
+  const n = Number(localStorage.getItem(CYCLE));
+  return Number.isInteger(n) && n !== 0 && n !== -1 && Math.abs(n) <= 28 ? n : null;
+}
+
+function applySettings(s: Settings) {
+  Object.assign(settings, s);
+  localStorage.setItem(CYCLE, String(s.cycle_day));
+}
 
 /** 服务器上的用户设置；启动时取到之后才进入页面。 */
 export const settings: Settings = $state({ cycle_day: 1, budget_cents: null, version: "", entry_count: 0, earliest: null });
@@ -110,7 +122,7 @@ async function loadSettings(perf?: WebPerformance): Promise<ApiError | undefined
   const read = () => attempt(api.settings());
   const s = await (perf ? perf.measure("settings_ms", read) : read());
   if (s instanceof ApiError) return s;
-  Object.assign(settings, s);
+  applySettings(s);
 }
 
 /** 写之后余额、笔数和最早账目的时间可能改变。 */
@@ -125,11 +137,15 @@ export async function boot(kind: BootKind = "retry") {
   app.balanceLoad = "loading";
   try {
     const catalog = perf.measure("catalog_ms", () => attempt(api.catalog()));
+    const guess = rememberedCycleDay();
+    const early = guess === null ? undefined : perf.measure("entries_ms", () => want(periodOf(new Date().toISOString(), guess), guess));
     const firstPeriod = loadSettings(perf).then(async (error) => {
       if (error) return error;
       app.period = currentPeriod();
       following = true;
-      return perf.measure("entries_ms", () => want(app.period));
+      const hit = early !== undefined && guess === settings.cycle_day;
+      perf.periodGuess(guess === null ? "none" : hit ? "hit" : "miss");
+      return hit ? early : perf.measure("entries_ms", () => want(app.period));
     });
     const [c, got] = await Promise.all([catalog, firstPeriod]);
     if (app.phase !== "loading") return;
@@ -314,7 +330,7 @@ export async function saveSettings(patch: Partial<Pick<Settings, "cycle_day" | "
   const s = await guard(api.putSettings({ cycle_day: settings.cycle_day, budget_cents: settings.budget_cents, ...patch }));
   if (!s) return;
   const moved = s.cycle_day !== settings.cycle_day;
-  Object.assign(settings, s);
+  applySettings(s);
   if (moved) app.period = currentPeriod(isYear(app.period));
 }
 
