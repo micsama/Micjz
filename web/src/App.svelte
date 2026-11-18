@@ -1,7 +1,7 @@
 <script lang="ts">
   // 外壳：标签页 + 推入的详情 + 共用面板。哪个页面长什么样由当前主题决定。
-  import { app, back, boot, closeSheet, find, flushDeletes, follow, refresh, want } from "./lib/store.svelte";
-  import { shiftPeriod } from "./lib/format";
+  import { untrack } from "svelte";
+  import { app, back, boot, closeSheet, enforcePeriodBounds, find, flushDeletes, follow, refresh, settings, want } from "./lib/store.svelte";
   import { themeState } from "./lib/theme.svelte";
   import { theme } from "./themes";
   import { nav } from "./ui/nav.svelte";
@@ -23,12 +23,13 @@
 
   void boot("startup");
 
-  // 看到哪个周期就把它和上一期（环比要用）的账目取齐。
   $effect(() => {
     if (app.phase !== "ready") return;
-    void want(app.period);
-    void want(shiftPeriod(app.period, -1));
+    enforcePeriodBounds();
+    const period = app.period;
+    const day = settings.cycle_day;
     follow();
+    untrack(() => void want(period, day));
   });
 
   // 切走时把撤销期内的删除发出去；回到前台时重取，快捷指令可能刚记过账。

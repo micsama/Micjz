@@ -1,5 +1,5 @@
 // 页面状态和所有操作；主题只负责展示，读写服务器都走这里。
-// 数据层只按 `occurred_at` 存取，按东八区自然年从服务器取、缓存；周期、统计这些视图在 `query.ts` 里从缓存算。
+// 账目按实际周期起止取、缓存；周期和统计视图在 query.ts 里计算。
 import { webPerformance, type BootKind } from "./performance";
 import type { Account, Catalog, Category, Entry, FieldKey, FlowKind, Recognition } from "./types";
 import { checkUpdated } from "./update.svelte";
@@ -31,7 +31,7 @@ const UNDO_MS = 4000;
 const HIDE = "micjz.hideBalance";
 
 /** 服务器上的用户设置；启动时取到之后才进入页面。 */
-export const settings: Settings = $state({ cycle_day: 1, budget_cents: null, version: "", entry_count: 0 });
+export const settings: Settings = $state({ cycle_day: 1, budget_cents: null, version: "", entry_count: 0, earliest: null });
 
 export const app = $state({
   /** 进页面之前：取数据中、要登录、取不到。 */
@@ -39,14 +39,12 @@ export const app = $state({
   /** `failed` 时的原因。 */
   failure: "",
   catalog: { categories: [], accounts: [], tags: [] } as Catalog,
-  /** 已取过的年份里的全部账目，新的在前。 */
+  /** 已取过的账目，新的在前。 */
   entries: [] as Entry[],
-  /** 已取过的自然年。 */
-  years: [] as number[],
-  /** 全库最早的一笔，跳转面板翻到这一年为止。 */
-  earliest: null as string | null,
+  periodLoads: {} as Record<string, "loading" | "ready" | "failed">,
   /** 各账户此刻的余额，分，服务器算。 */
   balances: {} as Record<number, number>,
+  balanceLoad: "loading" as "loading" | "ready" | "failed",
   /** 截图来的账目对应的识别，按 `recognition_id` 取，打开详情时才取。 */
   recognitions: {} as Record<string, Recognition>,
   /** 正在看的记账周期，月或年，见 `periodOf`。账目、财富、统计三页共用。 */
@@ -94,46 +92,57 @@ async function reloadCatalog() {
   return !(c instanceof ApiError);
 }
 
-type Balances = Awaited<ReturnType<typeof api.balances>>;
-const setBalances = (b: Balances) => (app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents])));
+type WebPerformance = ReturnType<typeof webPerformance>;
 
-/** 写之后余额、笔数会变，从服务器重取。 */
-async function refreshTotals(perf?: ReturnType<typeof webPerformance>) {
-  const [b, s] = await Promise.all([
-    perf ? perf.measure("balances_ms", () => attempt(api.balances())) : attempt(api.balances()),
-    perf ? perf.measure("settings_ms", () => attempt(api.settings())) : attempt(api.settings()),
-  ]);
-  if (!(b instanceof ApiError)) setBalances(b);
-  if (!(s instanceof ApiError)) Object.assign(settings, s);
-  return !(b instanceof ApiError || s instanceof ApiError);
+export async function loadBalances(perf?: WebPerformance): Promise<boolean> {
+  const read = () => attempt(api.balances());
+  const b = await (perf ? perf.measure("balances_ms", read) : read());
+  if (b instanceof ApiError) {
+    if (app.balanceLoad !== "ready") app.balanceLoad = "failed";
+    return false;
+  }
+  app.balances = Object.fromEntries(b.balances.map((x) => [x.account_id, x.balance_cents]));
+  app.balanceLoad = "ready";
+  return true;
 }
 
-/** 打开、登录后：取目录、设置、余额，再把当期和上一期要的年份取齐才进页面，免得先闪一下空数据。 */
+async function loadSettings(perf?: WebPerformance): Promise<ApiError | undefined> {
+  const read = () => attempt(api.settings());
+  const s = await (perf ? perf.measure("settings_ms", read) : read());
+  if (s instanceof ApiError) return s;
+  Object.assign(settings, s);
+}
+
+/** 写之后余额、笔数和最早账目的时间可能改变。 */
+async function refreshTotals() {
+  await Promise.all([loadBalances(), loadSettings()]);
+}
+
+/** 设置决定当期范围。目录和当期账目齐了就显示，余额独立加载。 */
 export async function boot(kind: BootKind = "retry") {
   const perf = webPerformance(kind);
   app.phase = "loading";
+  app.balanceLoad = "loading";
   try {
-    const [c, s, b] = await Promise.all([
-      perf.measure("catalog_ms", () => attempt(api.catalog())),
-      perf.measure("settings_ms", () => attempt(api.settings())),
-      perf.measure("balances_ms", () => attempt(api.balances())),
-    ]);
-    const failed = [c, s, b].find((r) => r instanceof ApiError);
-    if (failed) {
-      if (failed.status !== 401) [app.phase, app.failure] = ["failed", failed.message];
+    const catalog = perf.measure("catalog_ms", () => attempt(api.catalog()));
+    const firstPeriod = loadSettings(perf).then(async (error) => {
+      if (error) return error;
+      app.period = currentPeriod();
+      following = true;
+      return perf.measure("entries_ms", () => want(app.period));
+    });
+    const [c, got] = await Promise.all([catalog, firstPeriod]);
+    if (app.phase !== "loading") return;
+    if (c instanceof ApiError || got instanceof ApiError || !got) {
+      const failure = c instanceof ApiError ? c.message : got instanceof ApiError ? got.message : "账目没取到，请重试";
+      [app.phase, app.failure] = ["failed", failure];
       return;
     }
-    app.catalog = c as Catalog;
-    Object.assign(settings, s);
+    app.catalog = c;
     const updated = checkUpdated(settings.version);
     if (updated) toast(updated);
-    setBalances(b as Balances);
-    app.period = currentPeriod();
-    following = true;
-    const got = await perf.measure("entries_ms", () => Promise.all([want(app.period), want(shiftPeriod(app.period, -1))]));
-    if (app.phase !== "loading") return;
-    if (got.every(Boolean)) app.phase = "ready";
-    else [app.phase, app.failure] = ["failed", "账目没取到，请重试"];
+    app.phase = "ready";
+    void loadBalances(perf);
   } finally {
     void perf.report(app.phase === "loading" ? "failed" : app.phase).catch(() => {});
   }
@@ -163,58 +172,79 @@ export async function logout() {
   location.reload();
 }
 
-/** 网页回到前台：快捷指令可能记过账，重取目录、设置、余额和已取过的年份。 */
+let refreshing = false;
+
+/** 回到前台只刷新正在看的周期。历史缓存下次打开时再校验。 */
 export async function refresh() {
-  if (app.phase !== "ready") return;
+  if (app.phase !== "ready" || refreshing) return;
+  refreshing = true;
   const perf = webPerformance("resume");
   let ok = false;
   try {
-    const [catalog, totals, years] = await Promise.all([
-      perf.measure("catalog_ms", reloadCatalog),
-      refreshTotals(perf),
-      perf.measure("entries_ms", () => Promise.all(app.years.map(fetchYear))),
-    ]);
     if (following) app.period = currentPeriod(isYear(app.period));
-    ok = catalog && totals && years.every(Boolean);
+    fresh.clear();
+    const [catalog, balances, settingError, entries] = await Promise.all([
+      perf.measure("catalog_ms", reloadCatalog),
+      loadBalances(perf),
+      loadSettings(perf),
+      perf.measure("entries_ms", () => want(app.period)),
+    ]);
+    if (app.phase === "ready") ok = catalog && balances && !settingError && entries;
   } finally {
+    refreshing = false;
     void perf.report(String(app.phase) === "login" ? "login" : ok ? "ready" : "failed").catch(() => {});
   }
 }
 
-const yearOf = (iso: string) => new Date(iso).getFullYear();
-const inflight = new Map<number, Promise<boolean>>();
+const fresh = new Set<string>();
+const inflight = new Map<string, { start: Date; end: Date; request: Promise<boolean> }>();
+const cacheKey = (period: string, day: number) => `${day}:${period}`;
+const cachedKeys = (period: string, day: number) => [cacheKey(period, day), cacheKey(period.slice(0, 4), day)];
 
-/** 取一整年，替换内存里这一年的账目，返回是否取到。同一年同时只取一次。 */
-function fetchYear(y: number): Promise<boolean> {
-  let p = inflight.get(y);
-  if (!p) {
-    p = guard(api.entries(new Date(y, 0, 1), new Date(y + 1, 0, 1)))
-      .then((r) => {
-        if (!r) return false;
-        app.entries = [...app.entries.filter((e) => yearOf(e.occurred_at) !== y), ...r.entries].sort(newestFirst);
-        if (!app.years.includes(y)) app.years.push(y);
-        app.earliest = r.earliest;
-        return true;
-      })
-      .finally(() => inflight.delete(y));
-    inflight.set(y, p);
-  }
-  return p;
+export function periodStatus(period: string) {
+  const [key, year] = cachedKeys(period, settings.cycle_day);
+  return app.periodLoads[year] === "ready" ? "ready" : app.periodLoads[key];
 }
 
-/** 这段周期（月或年）覆盖的自然年都取齐，返回是否都取到；视图要看哪段就先要哪段。 */
-export function want(period: string): Promise<boolean> {
-  const { start, end } = periodRange(period, settings.cycle_day);
-  const last = Math.min(new Date(end.getTime() - 1).getFullYear(), new Date().getFullYear());
-  const todo = [];
-  for (let y = start.getFullYear(); y <= last; y++) if (!app.years.includes(y)) todo.push(fetchYear(y));
-  return Promise.all(todo).then((r) => r.every(Boolean));
+/** 加载精确的周期范围，同期去重。整年数据也能满足其下的月周期。 */
+export function want(period: string, day = settings.cycle_day): Promise<boolean> {
+  const [key, year] = cachedKeys(period, day);
+  if (fresh.has(key) || fresh.has(year)) return Promise.resolve(true);
+  const existing = inflight.get(key);
+  if (existing) return existing.request;
+
+  const { start, end } = periodRange(period, day);
+  const overlaps = [...inflight.values()].filter((other) => start < other.end && end > other.start);
+  if (overlaps.length) return Promise.all(overlaps.map((other) => other.request)).then(() => want(period, day));
+
+  if (app.periodLoads[key] !== "ready") app.periodLoads[key] = "loading";
+  const request = guard(api.entries(start, end))
+    .then((r) => {
+      if (!r) {
+        if (app.periodLoads[key] !== "ready") app.periodLoads[key] = "failed";
+        return false;
+      }
+      app.entries = [
+        ...app.entries.filter((e) => {
+          const t = Date.parse(e.occurred_at);
+          return t < start.getTime() || t >= end.getTime();
+        }),
+        ...r.entries,
+      ].sort(newestFirst);
+      settings.earliest = r.earliest;
+      fresh.add(key);
+      app.periodLoads[key] = "ready";
+      return true;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, { start, end, request });
+  return request;
 }
 
-/** 服务器返回的一笔放进内存：它那年取过就放进去（有就替换）；没取过就去取那一年。 */
+/** 服务器返回的一笔放进内存（有就替换）。 */
 function place(e: Entry) {
   app.entries = [...app.entries.filter((x) => x.id !== e.id), e].sort(newestFirst);
-  if (!app.years.includes(yearOf(e.occurred_at))) void fetchYear(yearOf(e.occurred_at));
+  if (!settings.earliest || Date.parse(e.occurred_at) < Date.parse(settings.earliest)) settings.earliest = e.occurred_at;
 }
 
 const loading = new Set<string>();
@@ -245,6 +275,24 @@ export const follow = () => (following = app.period === currentPeriod(isYear(app
 /** 已经是最新的周期，不能再往后翻。 */
 export const isLatest = (key: string) => key >= currentPeriod(isYear(key));
 
+/** 最早一笔按当前记账周期归属；空账本只有当前期。 */
+export function earliestPeriod(year = false): string {
+  const latest = currentPeriod();
+  const first = settings.earliest ? periodOf(settings.earliest, settings.cycle_day) : latest;
+  const earliest = first < latest ? first : latest;
+  return year ? earliest.slice(0, 4) : earliest;
+}
+
+export const isEarliest = (key: string) => key <= earliestPeriod(isYear(key));
+
+export const canSelectPeriod = (key: string) => key >= earliestPeriod(isYear(key)) && key <= currentPeriod(isYear(key));
+
+export function enforcePeriodBounds() {
+  if (!app.period || canSelectPeriod(app.period)) return;
+  const year = isYear(app.period);
+  app.period = isEarliest(app.period) ? earliestPeriod(year) : currentPeriod(year);
+}
+
 /** 切到年再切回月时，回到原来看的那个月。 */
 let lastMonth = "";
 
@@ -258,6 +306,7 @@ export function setUnit(year: boolean) {
   }
   const y = app.period;
   app.period = within(lastMonth, y) ? lastMonth : y === currentPeriod(true) ? currentPeriod() : `${y}-12`;
+  enforcePeriodBounds();
 }
 
 /** 改记账周期、预算；以服务器返回为准。 */

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { app, openStats, settings } from "../lib/store.svelte";
+  import { app, canSelectPeriod, openStats, periodStatus, settings, want } from "../lib/store.svelte";
   import { breakdown, budgetOf, earning, periodEntries, recentSpend, spendIndex, spending } from "../lib/query";
   import Icon from "./Icon.svelte";
-  import { badge, comparisonEnds, isYear, money, periodRange, shiftPeriod } from "../lib/format";
+  import { badge, comparisonEnds, isYear, money, periodOf, periodRange, shiftPeriod } from "../lib/format";
   import { color } from "../lib/look";
   const list = $derived(periodEntries(app.period));
   const spent = $derived(spending(list).cents);
@@ -11,17 +11,36 @@
   const parts = $derived(breakdown(list));
   const scale = $derived(Math.max(1, spent, budget ?? 0));
   const label = $derived(isYear(app.period) ? "全年" : settings.cycle_day === 1 ? "本月" : "本期");
+  const previousPeriod = $derived(shiftPeriod(app.period, -1));
   const change = $derived.by(() => {
+    if (periodStatus(previousPeriod) !== "ready") return null;
     const end = comparisonEnds(app.period, settings.cycle_day);
     const current = spending(list.filter((e) => new Date(e.occurred_at) < end.current)).cents;
-    const previous = spending(periodEntries(shiftPeriod(app.period, -1)).filter((e) => new Date(e.occurred_at) < end.previous)).cents;
+    const previous = spending(periodEntries(previousPeriod).filter((e) => new Date(e.occurred_at) < end.previous)).cents;
     return previous ? Math.round(((current - previous) / previous) * 100) : null;
   });
   const comparisonLabel = $derived(isYear(app.period) ? "较去年同期" : "较上月同期");
-  // 走势不分周期：截到今天，看过去的周期时截到那期最后一天；超过日均两倍的日子标红。
+  // 走势按最近 30 天取数；当期以外只补它覆盖的月周期。
+  const trendEnd = $derived(new Date(Math.min(Date.now(), periodRange(app.period, settings.cycle_day).end.getTime() - 1)));
+  const trendPeriods = $derived.by(() => {
+    const first = new Date(trendEnd);
+    first.setDate(first.getDate() - 29);
+    const stop = periodOf(trendEnd.toISOString(), settings.cycle_day);
+    const periods: string[] = [];
+    for (let key = periodOf(first.toISOString(), settings.cycle_day); key <= stop; key = shiftPeriod(key, 1)) {
+      if (canSelectPeriod(key)) periods.push(key);
+    }
+    return periods;
+  });
+  const trendReady = $derived(trendPeriods.every((period) => periodStatus(period) === "ready"));
+  $effect(() => {
+    const periods = [...new Set([previousPeriod, ...trendPeriods])].filter(canSelectPeriod);
+    const timer = setTimeout(() => periods.forEach((period) => void want(period)), 150);
+    return () => clearTimeout(timer);
+  });
+
   const trend = $derived.by(() => {
-    const { end } = periodRange(app.period, settings.cycle_day);
-    const days = recentSpend(new Date(Math.min(Date.now(), end.getTime() - 1)), 30);
+    const days = recentSpend(trendEnd, 30);
     const peak = Math.max(1, ...days.map((d) => d.cents));
     const avg = days.reduce((sum, d) => sum + d.cents, 0) / days.length;
     return days.map((d, i) => ({ ...d, x: 4 + (i / 29) * 132, y: 65 - (d.cents / peak) * 54, high: d.cents > avg * 2 }));
@@ -37,7 +56,8 @@
         class="change"
         class:positive={change !== null && change < 0}
         class:negative={change !== null && change > 0}
-        >{comparisonLabel}{#if change === null}
+        >{comparisonLabel}{#if canSelectPeriod(previousPeriod) && periodStatus(previousPeriod) !== "ready"}
+          —{:else if change === null}
           暂无对比{:else if change === 0}
           持平{:else}<Icon name={change > 0 ? "arrow-up" : "arrow-down"} size={11} weight={2.4} />{Math.abs(change)}%{/if}</span
       ><span class="surplus"
@@ -45,12 +65,14 @@
       >
     </div>
     <div class="trend">
-      <small>近 30 天支出</small><svg viewBox="0 0 140 76" role="img" aria-label="每日支出趋势，超过日均两倍的高消费标红"
-        ><path class="baseline" d="M4 65H136" /><path class="line" d={path} />{#each trend as d, i (i)}{#if i > 0 && (d.high || trend[i - 1].high)}<path
-              class="high-line"
-              d={`M${trend[i - 1].x},${trend[i - 1].y} L${d.x},${d.y}`}
-            />{/if}{#if d.high}<circle cx={d.x} cy={d.y} r="2.8"><title>{md(d.date)} · {money(d.cents)}</title></circle>{/if}{/each}</svg
-      ><span class="dates num"><span>{md(trend[0].date)}</span><span>{md(trend[29].date)}</span></span>
+      {#if trendReady}
+        <small>近 30 天支出</small><svg viewBox="0 0 140 76" role="img" aria-label="每日支出趋势，超过日均两倍的高消费标红"
+          ><path class="baseline" d="M4 65H136" /><path class="line" d={path} />{#each trend as d, i (i)}{#if i > 0 && (d.high || trend[i - 1].high)}<path
+                class="high-line"
+                d={`M${trend[i - 1].x},${trend[i - 1].y} L${d.x},${d.y}`}
+              />{/if}{#if d.high}<circle cx={d.x} cy={d.y} r="2.8"><title>{md(d.date)} · {money(d.cents)}</title></circle>{/if}{/each}</svg
+        ><span class="dates num"><span>{md(trend[0].date)}</span><span>{md(trend[29].date)}</span></span>
+      {:else}<small>近 30 天支出</small>{/if}
     </div>
   </div>
   <div class="budget-head">

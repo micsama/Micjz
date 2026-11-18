@@ -25,7 +25,9 @@
   <section class="account">
     <AccountLogo {account} size={44} />
     <span><b>{account.name}</b><small>{account.card ? cardLabel(account.card) : "无卡号"}</small></span>
-    <span class="balance"><small>当前余额</small><b class="num">{app.hideBalance ? "••••" : money(balanceOf(account.id))}</b></span>
+    <span class="balance"
+      ><small>当前余额</small><b class="num">{app.hideBalance ? "••••" : app.balanceLoad === "ready" ? money(balanceOf(account.id)) : "—"}</b></span
+    >
   </section>
 {/if}
 

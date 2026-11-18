@@ -127,7 +127,8 @@ export function createMock(): (req: Request) => Promise<Response | null> {
     catalog.categories = [...catalog.categories.filter((c) => c !== old), next];
   }
 
-  const fullSettings = () => ({ ...settings, version: "mock", entry_count: entries.length });
+  const earliestEntry = () => entries.reduce<string | null>((m, e) => (m === null || Date.parse(e.occurred_at) < Date.parse(m) ? e.occurred_at : m), null);
+  const fullSettings = () => ({ ...settings, version: "mock", entry_count: entries.length, earliest: earliestEntry() });
 
   async function route(method: string, path: string[], q: URLSearchParams, b: Record<string, unknown>): Promise<Response> {
     const [head, id, sub] = path;
@@ -149,8 +150,7 @@ export function createMock(): (req: Request) => Promise<Response | null> {
         const to = Date.parse(time(q.get("to")));
         if (from >= to) throw new Fail(400, "from 要早于 to");
         const list = entries.filter((e) => Date.parse(e.occurred_at) >= from && Date.parse(e.occurred_at) < to);
-        const earliest = entries.reduce<string | null>((m, e) => (m === null || e.occurred_at < m ? e.occurred_at : m), null);
-        return json(200, { entries: list, earliest });
+        return json(200, { entries: list, earliest: earliestEntry() });
       }
       case "GET balances":
         return json(200, { balances: catalog.accounts.map((a) => ({ account_id: a.id, balance_cents: balance(a.id) })) });

@@ -4,7 +4,7 @@
   import { quintOut } from "svelte/easing";
   import Icon from "../../ui/Icon.svelte";
   import SpendingCard from "../../ui/SpendingCard.svelte";
-  import { app, settings } from "../../lib/store.svelte";
+  import { app, periodStatus, settings, want } from "../../lib/store.svelte";
   import { byMonth, earning, periodEntries, spending } from "../../lib/query";
   import { isYear, money, periodLabel } from "../../lib/format";
   import PeriodHeader from "./PeriodHeader.svelte";
@@ -33,41 +33,47 @@
   <header class="bar" class:collapsed><span>{label.title}</span></header>
   <PeriodHeader onshift={(d) => (dir = d)} />
 
-  {#key app.period}
-    <div in:fly={{ x: 40 * dir, duration: 420, easing: quintOut }}>
-      <SpendingCard />
+  {#if periodStatus(app.period) === "ready"}
+    {#key app.period}
+      <div in:fly={{ x: 40 * dir, duration: 420, easing: quintOut }}>
+        <SpendingCard />
 
-      {#if year}
-        {#if months.length}<h3 class="day"><span>按月</span><span>点开看每一笔</span></h3>{/if}
-        <div class="group" class:hidden={!months.length}>
-          {#each months as m (m.key)}
-            <button class="row month" onclick={() => drill(m.key)}>
-              <span class="mo"><b class="num">{Number(m.key.slice(5))}</b>月</span>
-              <span class="main">
-                <span class="title num"
-                  >{money(m.out.cents)}<small
-                    >{m.out.count} 笔{#if m.income}
-                      · 收入 {money(m.income)}{/if}</small
-                  ></span
-                >
-                <span class="meter">
-                  <i class:over={monthBudget !== null && m.out.cents > monthBudget} style:width="{(m.out.cents / monthScale) * 100}%"></i>
-                  {#if monthBudget !== null}<b style:left="{(monthBudget / monthScale) * 100}%"></b>{/if}
+        {#if year}
+          {#if months.length}<h3 class="day"><span>按月</span><span>点开看每一笔</span></h3>{/if}
+          <div class="group" class:hidden={!months.length}>
+            {#each months as m (m.key)}
+              <button class="row month" onclick={() => drill(m.key)}>
+                <span class="mo"><b class="num">{Number(m.key.slice(5))}</b>月</span>
+                <span class="main">
+                  <span class="title num"
+                    >{money(m.out.cents)}<small
+                      >{m.out.count} 笔{#if m.income}
+                        · 收入 {money(m.income)}{/if}</small
+                    ></span
+                  >
+                  <span class="meter">
+                    <i class:over={monthBudget !== null && m.out.cents > monthBudget} style:width="{(m.out.cents / monthScale) * 100}%"></i>
+                    {#if monthBudget !== null}<b style:left="{(monthBudget / monthScale) * 100}%"></b>{/if}
+                  </span>
                 </span>
-              </span>
-              <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+                <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
 
-      {#if !year}<EntryDays {list} />{/if}
-      {#if !list.length}<div class="empty">
-          <p>这一期还没有账目</p>
-          <small>轻点手机背面截图记账，或点下方「＋」记一笔</small>
-        </div>{/if}
-    </div>
-  {/key}
+        {#if !year}<EntryDays {list} />{/if}
+        {#if !list.length}<div class="empty">
+            <p>这一期还没有账目</p>
+            <small>轻点手机背面截图记账，或点下方「＋」记一笔</small>
+          </div>{/if}
+      </div>
+    {/key}
+  {:else if periodStatus(app.period) === "failed"}
+    <div class="empty"><button onclick={() => void want(app.period)}>账目没取到，重试</button></div>
+  {:else}
+    <div class="empty" role="status">正在加载账目…</div>
+  {/if}
   <div class="tail"></div>
 </div>
 

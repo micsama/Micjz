@@ -45,6 +45,7 @@ export interface Settings {
   budget_cents: number | null;
   version: string;
   entry_count: number;
+  earliest: string | null;
 }
 
 /** 一键更新的进度，见 docs/blueprints/self-update.md。 */

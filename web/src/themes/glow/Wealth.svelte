@@ -8,7 +8,7 @@
   import { holdKeyboard } from "../../ui/nav.svelte";
   import { Reorder } from "../../ui/reorder.svelte";
   import { fade } from "svelte/transition";
-  import { app, copy, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
+  import { app, copy, loadBalances, moveAccount, openAccount, toggleBalance } from "../../lib/store.svelte";
   import { balanceOf } from "../../lib/query";
   import { money } from "../../lib/format";
   import { brand, cardLabel } from "../../lib/look";
@@ -51,76 +51,82 @@
   <header class="bar" class:collapsed><span>财富</span></header>
   <h1 class="title">财富</h1>
 
-  <section class="worth" onclick={() => (focus = null)} role="presentation">
-    <span class="glass"></span>
-    <div class="cap">
-      <span>{focus ? focus.name : "净资产"}</span>
-      <button
-        class="eye"
-        onclick={(e) => {
-          e.stopPropagation();
-          toggleBalance();
-        }}
-        aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}
-      >
-        <Icon name={app.hideBalance ? "eye-slash" : "eye"} size={18} weight={2} />
-      </button>
-    </div>
-    {#key `${focus?.id}${app.hideBalance}`}
-      <b class="big num" class:neg={shown < 0} in:fade={{ duration: 220 }}>{mask(money(shown, shown < 0))}</b>
-    {/key}
-    <span class="when">{focus ? `占资产 ${plus ? Math.round((Math.max(0, bal(focus)) / plus) * 100) : 0}% · 点空白处回到净资产` : "截至此刻"}</span>
-    {#if assets.length}
-      <div class="stack">
-        {#each assets as a (a.id)}
-          <button
-            class:dim={focus && focus.id !== a.id}
-            style:flex={bal(a)}
-            style:background={brand(a).bg}
-            onclick={(e) => {
-              e.stopPropagation();
-              focus = focus?.name === a.name ? null : a;
-            }}
-            aria-label={a.name}
-          ></button>
-        {/each}
+  {#if app.balanceLoad === "ready"}
+    <section class="worth" onclick={() => (focus = null)} role="presentation">
+      <span class="glass"></span>
+      <div class="cap">
+        <span>{focus ? focus.name : "净资产"}</span>
+        <button
+          class="eye"
+          onclick={(e) => {
+            e.stopPropagation();
+            toggleBalance();
+          }}
+          aria-label={app.hideBalance ? "显示金额" : "隐藏金额"}
+        >
+          <Icon name={app.hideBalance ? "eye-slash" : "eye"} size={18} weight={2} />
+        </button>
       </div>
-    {/if}
-    <div class="two">
-      <span><small>资产</small><b class="num">{mask(money(plus))}</b></span>
-      <span><small>负债</small><b class="num">{mask(money(-minus))}</b></span>
-    </div>
-  </section>
+      {#key `${focus?.id}${app.hideBalance}`}
+        <b class="big num" class:neg={shown < 0} in:fade={{ duration: 220 }}>{mask(money(shown, shown < 0))}</b>
+      {/key}
+      <span class="when">{focus ? `占资产 ${plus ? Math.round((Math.max(0, bal(focus)) / plus) * 100) : 0}% · 点空白处回到净资产` : "截至此刻"}</span>
+      {#if assets.length}
+        <div class="stack">
+          {#each assets as a (a.id)}
+            <button
+              class:dim={focus && focus.id !== a.id}
+              style:flex={bal(a)}
+              style:background={brand(a).bg}
+              onclick={(e) => {
+                e.stopPropagation();
+                focus = focus?.name === a.name ? null : a;
+              }}
+              aria-label={a.name}
+            ></button>
+          {/each}
+        </div>
+      {/if}
+      <div class="two">
+        <span><small>资产</small><b class="num">{mask(money(plus))}</b></span>
+        <span><small>负债</small><b class="num">{mask(money(-minus))}</b></span>
+      </div>
+    </section>
 
-  <h3 class="cap2">
-    账户<button
-      class="add"
-      onclick={() => {
-        holdKeyboard();
-        editing = "new";
-      }}><Icon name="plus" size={15} weight={2.4} />添加</button
-    >
-  </h3>
-  <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
-    {#each app.catalog.accounts as a, i (a.id)}
-      <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
-        <SwipeRow actions={actions(a)}>
-          <button class="row" onclick={() => openAccount(a.id)}>
-            <AccountLogo account={a} />
-            <span class="main">
-              <span class="name"
-                >{a.name}{#if i === 0}<em>默认</em>{/if}</span
-              >
-              <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
-            </span>
-            <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
-            <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
-          </button>
-        </SwipeRow>
-      </div>
-    {/each}
-  </div>
-  <p class="foot">长按拖动排序；左滑平账，填实际余额，差额记一笔平账</p>
+    <h3 class="cap2">
+      账户<button
+        class="add"
+        onclick={() => {
+          holdKeyboard();
+          editing = "new";
+        }}><Icon name="plus" size={15} weight={2.4} />添加</button
+      >
+    </h3>
+    <div class="group" class:sorting={reorder.from >= 0} {@attach reorder.attach}>
+      {#each app.catalog.accounts as a, i (a.id)}
+        <div class="item" class:lifted={reorder.from === i} style:transform="translateY({reorder.shift(i)}px)">
+          <SwipeRow actions={actions(a)}>
+            <button class="row" onclick={() => openAccount(a.id)}>
+              <AccountLogo account={a} />
+              <span class="main">
+                <span class="name"
+                  >{a.name}{#if i === 0}<em>默认</em>{/if}</span
+                >
+                <span class="sub num">{a.card ? cardLabel(a.card) : "无卡号"}</span>
+              </span>
+              <span class="right num" class:owe={bal(a) < 0}>{mask(money(bal(a), bal(a) < 0))}</span>
+              <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+            </button>
+          </SwipeRow>
+        </div>
+      {/each}
+    </div>
+    <p class="foot">长按拖动排序；左滑平账，填实际余额，差额记一笔平账</p>
+  {:else if app.balanceLoad === "failed"}
+    <button onclick={() => void loadBalances()}>余额没取到，重试</button>
+  {:else}
+    <p role="status">正在加载余额…</p>
+  {/if}
   <div class="tail"></div>
 </div>
 

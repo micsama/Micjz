@@ -18,6 +18,7 @@ use axum::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use tower_http::compression::CompressionLayer;
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "web/dist/"]
@@ -33,7 +34,12 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
         .route("/api/logout", post(super::session::logout))
         .route("/api/password", put(super::session::password))
         .route("/api/catalog", get(catalog_handler))
-        .route("/api/entries", get(list_entries).post(create_entry))
+        .route(
+            "/api/entries",
+            get(list_entries)
+                .layer(CompressionLayer::new())
+                .post(create_entry),
+        )
         .route(
             "/api/entries/{id}",
             axum::routing::patch(patch_entry).delete(delete_entry),
@@ -280,8 +286,10 @@ fn read_settings(conn: &Connection) -> Result<Value, WebError> {
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let count: i64 = conn.query_row("SELECT count(*) FROM entries", [], |r| r.get(0))?;
+    let earliest: Option<String> =
+        conn.query_row("SELECT min(occurred_at) FROM entries", [], |r| r.get(0))?;
     Ok(
-        json!({"cycle_day":cycle,"budget_cents":budget,"version":option_env!("MICJZ_VERSION").unwrap_or("dev"),"entry_count":count}),
+        json!({"cycle_day":cycle,"budget_cents":budget,"version":option_env!("MICJZ_VERSION").unwrap_or("dev"),"entry_count":count,"earliest":earliest}),
     )
 }
 async fn settings(State(s): State<Arc<AppState>>) -> Result<Json<Value>, WebError> {

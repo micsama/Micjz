@@ -5,7 +5,7 @@
 
   import Icon from "../../ui/Icon.svelte";
   import Donut from "../../ui/Donut.svelte";
-  import { app, categoryOf, fallbackOf, open, settings, topOf, filtering } from "../../lib/store.svelte";
+  import { app, canSelectPeriod, categoryOf, fallbackOf, open, periodStatus, settings, topOf, filtering, want } from "../../lib/store.svelte";
   import { breakdown, budgetOf, earning, elapsedDays, spendBars, spendIndex, spending, sumBy, todayIndex, statEntries } from "../../lib/query";
   import { badge, dateTime, isYear, money, periodLabel, periodRange, shiftPeriod } from "../../lib/format";
   import { color, slices } from "../../lib/look";
@@ -25,7 +25,15 @@
   const spent = $derived(spending(list).cents);
   const earned = $derived(earning(list));
   const income = $derived(earned.cents);
-  const prev = $derived(spending(statEntries(shiftPeriod(app.period, -1))).cents);
+  const previous = $derived(shiftPeriod(app.period, -1));
+  const prev = $derived(periodStatus(previous) === "ready" ? spending(statEntries(previous)).cents : 0);
+
+  $effect(() => {
+    if (periodStatus(app.period) !== "ready" || !canSelectPeriod(previous)) return;
+    const period = previous;
+    const timer = setTimeout(() => void want(period), 150);
+    return () => clearTimeout(timer);
+  });
   const label = $derived(periodLabel(app.period, settings.cycle_day));
   const year = $derived(isYear(app.period));
   /** 柱子的单位：按月看是天，按年看是月。 */
@@ -80,11 +88,15 @@
     day = null;
   });
 
+  const monthAt = (i: number) => `${app.period}-${String(i + 1).padStart(2, "0")}`;
+
   /** 按年看时从某个月的柱子进到那个月。 */
   function drill(i: number) {
+    const period = monthAt(i);
+    if (!canSelectPeriod(period)) return;
     day = null;
     picked = null;
-    app.period = `${app.period}-${String(i + 1).padStart(2, "0")}`;
+    app.period = period;
   }
 </script>
 
@@ -106,144 +118,152 @@
 
   <StatFilters />
 
-  <section class="tiles">
-    <div class="tile">
-      <small>支出</small><b class="num">{money(spent)}</b>
-      {#if change !== null}<em class:up={change > 0}
-          ><Icon name={change > 0 ? "arrow-up" : "arrow-down"} size={11} weight={2.4} />比{year ? "去年" : "上期"} {Math.abs(change)}%</em
-        >{/if}
-    </div>
-    <div class="tile"><small>收入</small><b class="num green">{money(income)}</b><em>{earned.count} 笔</em></div>
-    <div class="tile"><small>结余</small><b class="num" class:red={income < spent}>{money(income - spent, true)}</b></div>
-    <div class="tile"><small>{unit}均支出</small><b class="num">{money(avg)}</b></div>
-    {#if budget !== null && !filtering()}
-      {@const fast = spent / budget > pace.elapsed / pace.days}
-      <div class="tile wide">
-        <div class="budget-head">
-          <small>{year ? "全年" : ""}预算 {money(budget)}</small>
-          <span class="num">{spent <= budget ? `剩 ${money(budget - spent)}` : `超 ${money(spent - budget)}`}</span>
-        </div>
-        <div class="bar-track big">
-          <i class:over={spent > budget} class:fast style:width="{Math.min(100, (spent / budget) * 100)}%"></i><b
-            style:left="{Math.min(100, (pace.elapsed / pace.days) * 100)}%"
-          ></b>
-        </div>
+  {#if periodStatus(app.period) === "ready"}
+    <section class="tiles">
+      <div class="tile">
+        <small>支出</small><b class="num">{money(spent)}</b>
+        {#if change !== null}<em class:up={change > 0}
+            ><Icon name={change > 0 ? "arrow-up" : "arrow-down"} size={11} weight={2.4} />比{year ? "去年" : "上期"} {Math.abs(change)}%</em
+          >{/if}
       </div>
-    {/if}
-  </section>
-
-  <h3 class="cap">每{unit}支出</h3>
-  <section class="card">
-    <div class="readout">
-      {#if day !== null}<span>{dateOf(day)}</span><b class="num">{money(bars[day])}</b>
-        {#if year}<button class="drill" onclick={() => drill(day!)}>看这个月<Icon name="chevron-right" size={12} weight={2.8} /></button>{/if}
-      {:else}<span>最高一{year ? "个月" : "天"}</span><b class="num">{money(peak === 1 ? 0 : peak)}</b>{/if}
-    </div>
-    <div class="chart" role="presentation">
-      <i class="avg" style:bottom="{(avg / peak) * 100}%"><span class="num">{unit}均 {money(avg)}</span></i>
-      {#each bars as v, i (i)}
-        <button
-          class="col"
-          class:on={day === i}
-          class:future={today >= 0 && i > today}
-          onclick={() => (day = day === i ? null : i)}
-          aria-pressed={day === i}
-          aria-label={dateOf(i)}
-        >
-          <i style:height="{Math.max(2, (v / peak) * 100)}%"></i>
-        </button>
-      {/each}
-    </div>
-    <div class="axis num"><span>{dateOf(0)}</span><span>{dateOf(Math.floor(bars.length / 2))}</span><span>{dateOf(bars.length - 1)}</span></div>
-  </section>
-
-  <h3 class="cap">分类</h3>
-  <section class="card">
-    {#if ring.length}
-      <div class="ring">
-        <Donut slices={ring} size={200} thickness={24} selected={picked} onselect={(n) => (picked = n)}>
-          {#if pickedSlice}
-            <small>{pickedSlice.name}</small><b class="num">{money(pickedSlice.cents)}</b><small class="num">{pct(pickedSlice.cents)}</small>
-          {:else}
-            <small>总支出</small><b class="num">{money(spent)}</b><small>点圆环看分类</small>
-          {/if}
-        </Donut>
-      </div>
-      {#each parts as p (p.name)}
-        <button
-          class="cat"
-          class:open={picked === p.name}
-          onclick={() => ((picked = picked === p.name ? null : p.name), (pickedSub = null), (showAll = false))}
-        >
-          <span class="ce" style:--c={color(idx(p.name))}>{badge(p.name).icon}</span>
-          <span class="cn">{badge(p.name).text}<small>{p.count} 笔</small></span>
-          <span class="cv num">{money(p.cents)}<small>{pct(p.cents)}</small></span>
-        </button>
-        {#if picked === p.name}
-          <div class="subs">
-            {#each subs(p.name) as s (s.name)}
-              <button class="sub" class:open={pickedSub === s.name} onclick={() => ((pickedSub = pickedSub === s.name ? null : s.name), (showAll = false))}>
-                {@render bar(s.name, s.cents, s.count, color(idx(p.name)), p.cents)}
-              </button>
-              {#if pickedSub === s.name}
-                {@const all = subEntries(p.name, s.name)}
-                <div class="sub-entries">
-                  <EntryDays list={shown(all)} account={app.filter.account ?? undefined} />
-                  {#if all.length > LIMIT}
-                    <button class="more" onclick={() => (showAll = !showAll)}>
-                      {showAll ? "只看金额最大的 20 笔" : `金额最大的 20 笔 · 显示全部 ${all.length} 笔`}
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-            {:else}
-              <p class="none">没有二级分类</p>
-            {/each}
+      <div class="tile"><small>收入</small><b class="num green">{money(income)}</b><em>{earned.count} 笔</em></div>
+      <div class="tile"><small>结余</small><b class="num" class:red={income < spent}>{money(income - spent, true)}</b></div>
+      <div class="tile"><small>{unit}均支出</small><b class="num">{money(avg)}</b></div>
+      {#if budget !== null && !filtering()}
+        {@const fast = spent / budget > pace.elapsed / pace.days}
+        <div class="tile wide">
+          <div class="budget-head">
+            <small>{year ? "全年" : ""}预算 {money(budget)}</small>
+            <span class="num">{spent <= budget ? `剩 ${money(budget - spent)}` : `超 ${money(spent - budget)}`}</span>
           </div>
-        {/if}
-      {/each}
-    {:else}
-      <p class="none">这一期没有支出</p>
-    {/if}
-  </section>
-
-  {#if accounts.length}
-    <h3 class="cap">账户</h3>
-    <section class="card pad">
-      {#each accounts as a, i (a.name)}{@render bar(a.name, a.cents, a.count, `var(--c${[1, 5, 4, 3][i % 4]})`, accounts[0].cents)}{/each}
+          <div class="bar-track big">
+            <i class:over={spent > budget} class:fast style:width="{Math.min(100, (spent / budget) * 100)}%"></i><b
+              style:left="{Math.min(100, (pace.elapsed / pace.days) * 100)}%"
+            ></b>
+          </div>
+        </div>
+      {/if}
     </section>
-  {/if}
 
-  {#if merchants.length}
-    <h3 class="cap">常去的商家</h3>
-    <section class="card pad">
-      {#each merchants as m (m.name)}{@render bar(m.name, m.cents, m.count, "var(--c0)", merchants[0].cents)}{/each}
-    </section>
-  {/if}
-
-  {#if tags.length}
-    <h3 class="cap">标签</h3>
-    <section class="card pad">
-      {#each tags as t (t.name)}{@render bar(t.name, t.cents, t.count, "var(--c2)", Math.max(...tags.map((x) => x.cents)))}{/each}
-    </section>
-  {/if}
-
-  {#if biggest.length}
-    <h3 class="cap">最大的几笔</h3>
+    <h3 class="cap">每{unit}支出</h3>
     <section class="card">
-      {#each biggest as e, i (e.id)}
-        {@const v = view(e)}
-        <button class="cat" onclick={() => open(e.id)}>
-          <span class="rank num">{i + 1}</span>
-          <span class="cn">{v.title}<small>{[...v.meta, dateTime(e.occurred_at)].join(" · ")}</small></span>
-          <span class="cv num">{money(e.amount_cents)}<small>{pct(e.amount_cents)}</small></span>
-        </button>
-      {/each}
+      <div class="readout">
+        {#if day !== null}<span>{dateOf(day)}</span><b class="num">{money(bars[day])}</b>
+          {#if year && canSelectPeriod(monthAt(day))}<button class="drill" onclick={() => drill(day!)}
+              >看这个月<Icon name="chevron-right" size={12} weight={2.8} /></button
+            >{/if}
+        {:else}<span>最高一{year ? "个月" : "天"}</span><b class="num">{money(peak === 1 ? 0 : peak)}</b>{/if}
+      </div>
+      <div class="chart" role="presentation">
+        <i class="avg" style:bottom="{(avg / peak) * 100}%"><span class="num">{unit}均 {money(avg)}</span></i>
+        {#each bars as v, i (i)}
+          <button
+            class="col"
+            class:on={day === i}
+            class:future={today >= 0 && i > today}
+            onclick={() => (day = day === i ? null : i)}
+            aria-pressed={day === i}
+            aria-label={dateOf(i)}
+          >
+            <i style:height="{Math.max(2, (v / peak) * 100)}%"></i>
+          </button>
+        {/each}
+      </div>
+      <div class="axis num"><span>{dateOf(0)}</span><span>{dateOf(Math.floor(bars.length / 2))}</span><span>{dateOf(bars.length - 1)}</span></div>
     </section>
+
+    <h3 class="cap">分类</h3>
+    <section class="card">
+      {#if ring.length}
+        <div class="ring">
+          <Donut slices={ring} size={200} thickness={24} selected={picked} onselect={(n) => (picked = n)}>
+            {#if pickedSlice}
+              <small>{pickedSlice.name}</small><b class="num">{money(pickedSlice.cents)}</b><small class="num">{pct(pickedSlice.cents)}</small>
+            {:else}
+              <small>总支出</small><b class="num">{money(spent)}</b><small>点圆环看分类</small>
+            {/if}
+          </Donut>
+        </div>
+        {#each parts as p (p.name)}
+          <button
+            class="cat"
+            class:open={picked === p.name}
+            onclick={() => ((picked = picked === p.name ? null : p.name), (pickedSub = null), (showAll = false))}
+          >
+            <span class="ce" style:--c={color(idx(p.name))}>{badge(p.name).icon}</span>
+            <span class="cn">{badge(p.name).text}<small>{p.count} 笔</small></span>
+            <span class="cv num">{money(p.cents)}<small>{pct(p.cents)}</small></span>
+          </button>
+          {#if picked === p.name}
+            <div class="subs">
+              {#each subs(p.name) as s (s.name)}
+                <button class="sub" class:open={pickedSub === s.name} onclick={() => ((pickedSub = pickedSub === s.name ? null : s.name), (showAll = false))}>
+                  {@render bar(s.name, s.cents, s.count, color(idx(p.name)), p.cents)}
+                </button>
+                {#if pickedSub === s.name}
+                  {@const all = subEntries(p.name, s.name)}
+                  <div class="sub-entries">
+                    <EntryDays list={shown(all)} account={app.filter.account ?? undefined} />
+                    {#if all.length > LIMIT}
+                      <button class="more" onclick={() => (showAll = !showAll)}>
+                        {showAll ? "只看金额最大的 20 笔" : `金额最大的 20 笔 · 显示全部 ${all.length} 笔`}
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+              {:else}
+                <p class="none">没有二级分类</p>
+              {/each}
+            </div>
+          {/if}
+        {/each}
+      {:else}
+        <p class="none">这一期没有支出</p>
+      {/if}
+    </section>
+
+    {#if accounts.length}
+      <h3 class="cap">账户</h3>
+      <section class="card pad">
+        {#each accounts as a, i (a.name)}{@render bar(a.name, a.cents, a.count, `var(--c${[1, 5, 4, 3][i % 4]})`, accounts[0].cents)}{/each}
+      </section>
+    {/if}
+
+    {#if merchants.length}
+      <h3 class="cap">常去的商家</h3>
+      <section class="card pad">
+        {#each merchants as m (m.name)}{@render bar(m.name, m.cents, m.count, "var(--c0)", merchants[0].cents)}{/each}
+      </section>
+    {/if}
+
+    {#if tags.length}
+      <h3 class="cap">标签</h3>
+      <section class="card pad">
+        {#each tags as t (t.name)}{@render bar(t.name, t.cents, t.count, "var(--c2)", Math.max(...tags.map((x) => x.cents)))}{/each}
+      </section>
+    {/if}
+
+    {#if biggest.length}
+      <h3 class="cap">最大的几笔</h3>
+      <section class="card">
+        {#each biggest as e, i (e.id)}
+          {@const v = view(e)}
+          <button class="cat" onclick={() => open(e.id)}>
+            <span class="rank num">{i + 1}</span>
+            <span class="cn">{v.title}<small>{[...v.meta, dateTime(e.occurred_at)].join(" · ")}</small></span>
+            <span class="cv num">{money(e.amount_cents)}<small>{pct(e.amount_cents)}</small></span>
+          </button>
+        {/each}
+      </section>
+    {/if}
+    <h3 class="cap">明细 · {list.length} 笔</h3>
+    <EntryDays {list} account={app.filter.account ?? undefined} />
+    {#if !list.length}<p class="none">{filtering() ? "没有符合筛选的账目" : "这一期还没有账目"}</p>{/if}
+  {:else if periodStatus(app.period) === "failed"}
+    <button onclick={() => void want(app.period)}>账目没取到，重试</button>
+  {:else}
+    <p role="status">正在加载账目…</p>
   {/if}
-  <h3 class="cap">明细 · {list.length} 笔</h3>
-  <EntryDays {list} account={app.filter.account ?? undefined} />
-  {#if !list.length}<p class="none">{filtering() ? "没有符合筛选的账目" : "这一期还没有账目"}</p>{/if}
   <div class="tail"></div>
 </div>
 

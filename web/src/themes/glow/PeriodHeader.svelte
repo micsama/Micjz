@@ -4,7 +4,7 @@
   import { scale } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import Icon from "../../ui/Icon.svelte";
-  import { app, currentPeriod, isLatest, settings, setUnit, want } from "../../lib/store.svelte";
+  import { app, canSelectPeriod, currentPeriod, earliestPeriod, isEarliest, isLatest, periodStatus, settings, setUnit } from "../../lib/store.svelte";
   import { monthTotals, type Sum } from "../../lib/query";
   import { cycleText, isYear, periodLabel, shiftPeriod } from "../../lib/format";
 
@@ -16,20 +16,15 @@
   const year = $derived(isYear(app.period));
   const label = $derived(periodLabel(app.period, settings.cycle_day));
   const latest = $derived(isLatest(app.period));
+  const earliest = $derived(isEarliest(app.period));
 
   let open = $state(false);
   /** 面板里正在看的年份，只在按月时用。 */
   let shown = $state(0);
   const totals = $derived(open ? monthTotals() : new Map<string, Sum>());
   const thisYear = $derived(Number(currentPeriod(true)));
-  /** 最早一笔所在的年份，服务器告诉的，不用先把历史都取下来。 */
-  const firstYear = $derived(app.earliest ? Math.min(thisYear, new Date(app.earliest).getFullYear()) : thisYear);
+  const firstYear = $derived(Number(earliestPeriod(true)));
   const years = $derived(Array.from({ length: thisYear - firstYear + 1 }, (_, i) => String(thisYear - i)));
-  // 面板要显示每月（年）的支出：打开时把看得到的年份取下来，取到一年填一年。
-  $effect(() => {
-    if (!open) return;
-    for (const y of year ? years : [String(shown)]) void want(y);
-  });
 
   const yearTotal = (y: string) =>
     [...totals].filter(([k]) => k.startsWith(`${y}-`)).reduce((s, [, t]) => ({ cents: s.cents + t.cents, count: s.count + t.count }), { cents: 0, count: 0 });
@@ -41,8 +36,10 @@
   };
 
   function go(delta: number) {
+    const key = shiftPeriod(app.period, delta);
+    if (!canSelectPeriod(key)) return;
     onshift?.(delta);
-    app.period = shiftPeriod(app.period, delta);
+    app.period = key;
   }
 
   function unit(y: boolean) {
@@ -59,7 +56,7 @@
 
   function jump(key: string) {
     open = false;
-    if (key === app.period) return;
+    if (key === app.period || !canSelectPeriod(key)) return;
     onshift?.(key > app.period ? 1 : -1);
     app.period = key;
   }
@@ -76,7 +73,9 @@
       <button class:on={!year} onclick={() => unit(false)}>月</button>
       <button class:on={year} onclick={() => unit(true)}>年</button>
     </div>
-    <button class="arrow" onclick={() => go(-1)} aria-label={year ? "上一年" : "上个周期"}><Icon name="chevron-left" size={17} weight={2.6} /></button>
+    <button class="arrow" onclick={() => go(-1)} disabled={earliest} aria-label={year ? "上一年" : "上个周期"}
+      ><Icon name="chevron-left" size={17} weight={2.6} /></button
+    >
     <button class="arrow" onclick={() => go(1)} disabled={latest} aria-label={year ? "下一年" : "下个周期"}
       ><Icon name="chevron-right" size={17} weight={2.6} /></button
     >
@@ -88,9 +87,9 @@
       {#if year}
         <div class="grid years">
           {#each years as y (y)}
-            {@const t = yearTotal(y)}
+            {@const t = periodStatus(y) === "ready" ? yearTotal(y) : null}
             <button class:on={y === app.period} class:now={y === String(thisYear)} onclick={() => jump(y)}>
-              <b>{y}年</b><small class="num">{t.count ? brief(t.cents) : "—"}</small>
+              <b>{y}年</b><small class="num">{t?.count ? brief(t.cents) : "—"}</small>
             </button>
           {/each}
         </div>
@@ -102,8 +101,8 @@
         </div>
         <div class="grid">
           {#each Array.from({ length: 12 }, (_, i) => `${shown}-${String(i + 1).padStart(2, "0")}`) as k, i (k)}
-            {@const t = totals.get(k)}
-            <button class:on={k === app.period} class:now={k === currentPeriod()} disabled={k > currentPeriod()} onclick={() => jump(k)}>
+            {@const t = periodStatus(k) === "ready" ? totals.get(k) : undefined}
+            <button class:on={k === app.period} class:now={k === currentPeriod()} disabled={!canSelectPeriod(k)} onclick={() => jump(k)}>
               <b>{i + 1}月</b><small class="num">{t ? brief(t.cents) : "—"}</small>
             </button>
           {/each}
