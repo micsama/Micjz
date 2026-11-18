@@ -50,6 +50,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .fallback(web::static_file)
         .method_not_allowed_fallback(not_found)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        // 客户端声明支持才压缩；默认跳过图片和很小的响应。
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .layer(middleware::from_fn_with_state(state.clone(), access_log))
         .with_state(state)

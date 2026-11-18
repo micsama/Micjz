@@ -59,7 +59,7 @@ screen -S micjz
 - `total_ms` 是从文档导航或回前台到本轮账目和设置就绪的时间。`paint_ms` 通过浏览器动画帧估计渲染完成时间，后台或未及时绘制时为空。
 - `before_boot_ms` 是导航到应用开始加载账目的时间，可结合 HTML 请求、首个内容绘制，以及 JS/CSS 的传输量和耗时判断资源瓶颈。
 - 目录、设置、余额和账目各有独立耗时。`resources` 还记录各请求的开始时间、首字节、下载时间和字节数，便于看哪些请求并行、哪些在等待。
-- `navigation` 另记导航各阶段相对起点的时刻（`fetch_at_ms`、`dns_at_ms`、`connect_at_ms`、`tls_at_ms`、`connect_end_ms`、`worker_at_ms`、`dom_interactive_ms`、`dom_content_loaded_ms`）和导航类型；HTML 与各资源带 `protocol`（`http/1.1`、`h2`、`h3`）和 `request_at_ms`（发出请求的时刻）。
+- `navigation.request_at_ms` 是导航起点到浏览器发出 HTML 请求的时刻；连接复用时这段是浏览器内部排队，实测有时 2 ms、有时 70–185 ms。
 - 启动时按上次记住的周期日把当期账目和设置并行请求，`period_guess` 记 `hit`（猜中，省一次往返）、`miss`（周期日变了，重取）或 `none`（首次）。
 - 记录只包含计时、字节数和固定的资源类型。上报需要有效登录，断网时可能收不到该条记录。
 
