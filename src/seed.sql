@@ -29,8 +29,8 @@ INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', 
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎧 配件外设', 'peripheral', 2 FROM categories WHERE key = 'digital';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '🎮 娱乐', 'fun', 7);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🕹️ 游戏', 'game', 1 FROM categories WHERE key = 'fun';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎬 文娱兴趣', 'show', 2 FROM categories WHERE key = 'fun';
-INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎡 景区乐园', 'park', 3 FROM categories WHERE key = 'fun';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎡 景区乐园', 'park', 2 FROM categories WHERE key = 'fun';
+INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🎸 文娱兴趣', 'show', 3 FROM categories WHERE key = 'fun';
 INSERT INTO categories (kind, parent_id, name, key, position) VALUES ('expense', NULL, '💳 订阅与服务', 'membership', 8);
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '🤖 AI 工具', 'ai', 1 FROM categories WHERE key = 'membership';
 INSERT INTO categories (kind, parent_id, name, key, position) SELECT 'expense', id, '☁️ 其他订阅与服务', 'software', 2 FROM categories WHERE key = 'membership';
