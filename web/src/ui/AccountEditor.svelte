@@ -27,10 +27,13 @@
   let error = $state<{ at: "name" | "card"; text: string } | null>(null);
   let nameInput = $state<HTMLInputElement>();
   let numberInput = $state<HTMLInputElement>();
+  let brandRow = $state<HTMLDivElement>();
 
   onMount(async () => {
     await tick();
     if (!old) nameInput?.focus();
+    // 机构是一行横滑，选中的可能在屏幕外。
+    brandRow?.querySelector(".on")?.scrollIntoView({ inline: "center", block: "nearest" });
   });
 
   function typed() {
@@ -97,7 +100,7 @@
   {#if error?.at === "name"}<p class="hint bad">{error.text}</p>{/if}
 
   <h3>机构</h3>
-  <div class="brands">
+  <div class="brands" bind:this={brandRow}>
     {#each LOGOS as [b] (b)}
       <button class:on={brand === b} onclick={() => pick(b)}>
         <AccountLogo account={{ name: b, brand: b }} size={38} />
@@ -148,6 +151,10 @@
   .body {
     display: grid;
     gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     padding: 4px 16px 12px;
   }
   h3 {
@@ -175,14 +182,20 @@
     letter-spacing: 0;
   }
   .brands {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    display: flex;
     gap: 4px;
     padding: 8px 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
     border-radius: var(--radius-group);
     background: var(--card);
   }
+  .brands::-webkit-scrollbar {
+    display: none;
+  }
   .brands button {
+    flex: none;
+    width: 62px;
     display: grid;
     justify-items: center;
     gap: 4px;

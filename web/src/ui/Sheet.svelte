@@ -68,7 +68,7 @@
     right: 0;
     bottom: var(--kb, 0px);
     z-index: 41;
-    max-height: calc(100% - env(safe-area-inset-top) - 24px);
+    max-height: calc(100% - var(--kb, 0px) - env(safe-area-inset-top) - 24px);
     display: flex;
     flex-direction: column;
     background: var(--sheet-bg);

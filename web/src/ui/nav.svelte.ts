@@ -32,6 +32,9 @@ export function keyboardInset(node: HTMLElement) {
   const sync = () => {
     const gap = window.innerHeight - viewport.height - viewport.offsetTop;
     node.style.setProperty("--kb", `${gap > 80 ? gap : 0}px`);
+    // 可视区域变矮后，正在输入的框可能被挡住，滚回视野。
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && node.contains(active)) requestAnimationFrame(() => active.scrollIntoView({ block: "nearest" }));
   };
   sync();
   viewport.addEventListener("resize", sync);
