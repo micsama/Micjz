@@ -179,6 +179,44 @@ async fn recognize_then_confirm_saves_once() {
     assert!(std::path::Path::new(&path).exists(), "图片已留存：{path}");
 }
 
+#[tokio::test]
+async fn location_only_for_confirmed_and_first_wins() {
+    let s = server().await;
+    let post = |draft: &Value, lat: &str, lon: &str| {
+        s.http
+            .post(format!("{}/location", s.base))
+            .bearer_auth(TOKEN)
+            .json(&json!({ "draft": draft, "lat": lat, "lon": lon }))
+            .send()
+    };
+    let (_, menu) = s.recognize("image", PNG).await;
+    // 未入账：不写。
+    let r = post(&menu["draft"], "31.23", "121.47").await.unwrap();
+    assert_eq!(r.status(), 404);
+
+    let (_, done) = s.step(&menu, "✅ 确认记账").await;
+    assert_done(&done, "已记账");
+    assert_eq!(done["draft"], menu["draft"], "入账成功的 done 带回草稿");
+    for (lat, lon) in [("", "121.47"), ("91", "0"), ("abc", "1"), ("NaN", "1")] {
+        let r = post(&done["draft"], lat, lon).await.unwrap();
+        assert_eq!(r.status(), 400, "{lat},{lon}");
+    }
+    let r = post(&done["draft"], " 31.2304 ", "121.4737").await.unwrap();
+    assert_eq!(r.status(), 204);
+    let r = post(&done["draft"], "0", "0").await.unwrap();
+    assert_eq!(r.status(), 204, "重复补采不报错");
+    assert_eq!(
+        s.count(
+            "SELECT count(*) FROM recognitions WHERE latitude = 31.2304 AND longitude = 121.4737"
+        ),
+        1,
+        "保留第一次的坐标"
+    );
+
+    let r = post(&json!("bad"), "1", "1").await.unwrap();
+    assert_eq!(r.status(), 400);
+}
+
 /// 模型说不是支付页：每一屏顶部提醒原因，字段照留，仍可确认。
 #[tokio::test]
 async fn rejected_recognition_reminds_but_still_confirms() {

@@ -46,6 +46,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/recognize", post(recognize_handler))
         .route("/step", post(step_handler))
+        .route("/location", post(location_handler))
         .merge(web::routes())
         .fallback(web::static_file)
         .method_not_allowed_fallback(not_found)
@@ -286,6 +287,43 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[derive(Deserialize)]
+struct LocationRequest {
+    draft: String,
+    lat: String,
+    lon: String,
+}
+
+/// 入账后补采的位置：只写已入账的识别，只写第一次。快捷指令不读响应。
+async fn location_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(trace): Extension<TraceSlot>,
+    body: Result<Json<LocationRequest>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let id = Draft::decode_id(&req.draft).map_err(bad_request)?;
+    trace.lock().expect("trace 锁未中毒").draft_id = Some(id.clone());
+    let coord = |s: &str, max: f64| {
+        s.trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && v.abs() <= max)
+    };
+    let (Some(lat), Some(lon)) = (coord(&req.lat, 90.0), coord(&req.lon, 180.0)) else {
+        return Err(bad_request("坐标无效"));
+    };
+    let saved = state.db.set_location(&id, lat, lon).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("保存位置失败：{e}"),
+        )
+    })?;
+    if !saved {
+        return Err(ApiError(StatusCode::NOT_FOUND, "未入账".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 struct StepRequest {
     draft: String,
     field: String,
@@ -329,11 +367,11 @@ async fn step_handler(
         } => match state.db.save(&draft, amount_cents) {
             Ok(inserted) => {
                 tracing::info!(id = %draft.id, inserted, "入账");
-                Ok(Json(Reply::done(flow::saved_message(
-                    &draft,
-                    amount_cents,
-                    &cat,
-                ))))
+                // 带回草稿：快捷指令据此在入账成功后补采位置。
+                Ok(Json(Reply {
+                    draft: draft.encode(),
+                    ..Reply::done(flow::saved_message(&draft, amount_cents, &cat))
+                }))
             }
             Err(e) => {
                 tracing::error!(id = %draft.id, error = %format!("{e:#}"), "入账失败");

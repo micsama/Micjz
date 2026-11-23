@@ -116,7 +116,7 @@ def post(path: str, *, form=None, json=None) -> str:
     return act("downloadurl", **params)
 
 
-IS, CONTAINS = 4, 99
+IS, CONTAINS, HAS_ANY_VALUE = 4, 99, 100
 
 
 def if_(subject: str, condition: int, value: str, then, otherwise=None) -> None:
@@ -198,8 +198,34 @@ def build(base: str, token: str) -> None:
     get_key_to("resp", "type", "type")
     get_key_to("resp", "summary", "summary")
 
+    def locate():
+        """入账成功（done 带回 draft）后补采位置；失败只丢位置，账已入库。"""
+        here = out(act("getcurrentlocation"), "当前位置")
+
+        def detail(prop: str) -> dict:
+            uid = act(
+                "properties.locations", WFInput=attach(here), WFContentItemPropertyName=prop
+            )
+            return text(out(uid, "位置的详细信息"))
+
+        post(
+            "/location",
+            json=[
+                ("draft", text(var("draft")), 0),
+                ("lat", detail("Latitude"), 0),
+                ("lon", detail("Longitude"), 0),
+            ],
+        )
+
     def done():
-        notify_and_exit(text(out(get_key("resp", "message"), "词典值")))
+        act(
+            "notification",
+            WFNotificationActionTitle="记一笔",
+            WFNotificationActionBody=text(out(get_key("resp", "message"), "词典值")),
+        )
+        get_key_to("resp", "draft", "draft")
+        if_("draft", HAS_ANY_VALUE, "", locate)
+        act("exit")
 
     def choose_one():
         set_var("value", out(choose(False), "所选项目"))

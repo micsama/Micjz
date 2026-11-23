@@ -94,6 +94,18 @@ impl Draft {
         URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).expect("Draft 可序列化"))
     }
 
+    /// 只取草稿 ID，不按当前分类等校验（入账后补采位置用）。
+    pub fn decode_id(s: &str) -> Result<String, FlowError> {
+        #[derive(Deserialize)]
+        struct Id {
+            id: String,
+        }
+        let invalid = |e: &dyn std::fmt::Display| FlowError::InvalidDraft(e.to_string());
+        let bytes = URL_SAFE_NO_PAD.decode(s).map_err(|e| invalid(&e))?;
+        let Id { id } = serde_json::from_slice(&bytes).map_err(|e| invalid(&e))?;
+        Ok(id)
+    }
+
     /// 解码并按当前分类、账户、标签校验。
     pub fn decode(s: &str, cat: &Catalog) -> Result<Draft, FlowError> {
         let invalid = |e: &dyn std::fmt::Display| FlowError::InvalidDraft(e.to_string());
