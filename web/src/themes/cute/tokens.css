@@ -24,6 +24,9 @@
   --radius-group: 22px;
   --radius-sheet: 30px;
   --radius-alert: 24px;
+  /* 共用页面的吸顶栏和卡片阴影：缺了这两个，顶栏滚动时透明、卡片没有阴影。 */
+  --bar-bg: rgba(255, 246, 239, 0.82);
+  --shadow-card: 0 6px 18px -10px rgba(255, 111, 156, 0.4);
   --c0: #ffb26b;
   --c1: #7cc4ff;
   --c2: #ff8fb1;
@@ -51,6 +54,12 @@
     --alert-bg: rgba(58, 45, 51, 0.95);
     --toast-bg: #ffeef3;
     --toast-fg: #4a3a3f;
+    --sep: rgba(255, 143, 177, 0.18);
+    --fill: rgba(255, 143, 177, 0.14);
+    --press: rgba(255, 143, 177, 0.12);
+    --scrim: rgba(0, 0, 0, 0.45);
+    --bar-bg: rgba(42, 32, 37, 0.82);
+    --shadow-card: 0 6px 18px -10px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -85,5 +94,35 @@
   font-weight: 700;
 }
 [data-theme="cute"] .category-grid .category-icon {
+  border-radius: 50%;
+}
+
+/* 财富卡：晶彩是深蓝，软糖换成薄荷到天蓝的奶油渐变、深色字。 */
+[data-theme="cute"] .worth {
+  border-radius: 28px;
+  color: #2f4a44;
+  background: linear-gradient(125deg, #c9f3e3, #d6ecff 60%, #eadcff);
+  box-shadow: 0 14px 30px -16px rgba(80, 170, 150, 0.55);
+}
+[data-theme="cute"] .worth .eye {
+  color: inherit;
+}
+[data-theme="cute"] .worth .eye:active {
+  background: rgba(47, 74, 68, 0.1);
+}
+[data-theme="cute"] .worth .big.neg {
+  color: var(--red);
+}
+[data-theme="cute"] .worth .stack button {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="cute"] .worth {
+    background: linear-gradient(125deg, #3d5a52, #34465e 60%, #4a3a52);
+    color: #f3fff9;
+  }
+}
+/* 设置等列表的小图标：圆形、不加高光。 */
+[data-theme="cute"] .fi {
   border-radius: 50%;
 }

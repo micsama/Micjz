@@ -53,24 +53,28 @@
 
   {#if shot}
     <h3 class="cap">📸 截图</h3>
-    <section class="notes">
-      {#if !lost}
-        <button class="polaroid" onclick={() => (viewing = true)}>
-          <img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />
-          <span>原图</span>
-        </button>
-      {/if}
-      {#if diff.length}
-        <div class="sticky">
-          <b>后来改了 {diff.length} 处</b>
-          {#each diff as d (d.def.key)}
-            <p>{d.def.emoji} <s>{d.from}</s> → {d.to}</p>
-          {/each}
-        </div>
-      {/if}
-    </section>
+    {#if lost}
+      <p class="lost">截图没留存下来～</p>
+    {:else}
+      <button class="polaroid" onclick={() => (viewing = true)}>
+        <img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />
+        <span>点开看原图 🔍</span>
+      </button>
+    {/if}
+    {#if diff.length}
+      <div class="sticky">
+        <b>后来改了 {diff.length} 处 ✏️</b>
+        {#each diff as d (d.def.key)}
+          <p>{d.def.emoji} <s>{d.from}</s> → {d.to}</p>
+        {/each}
+      </div>
+    {/if}
     {#if shot.location}
-      <a class="where" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">📍 记账位置 · {shot.location.city ?? "在地图里看看"}</a>
+      <a class="tile where" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">
+        <span class="te">📍</span>
+        <span class="tl">记账位置</span>
+        <span class="tv">{shot.location.city ?? "在地图里看看"}</span>
+      </a>
     {/if}
   {/if}
 
@@ -257,47 +261,50 @@
     font-size: 15px;
     font-weight: 800;
   }
-  .notes {
-    display: flex;
-    gap: 14px;
-    align-items: flex-start;
-    margin: 0 16px;
-  }
   .polaroid {
-    flex: none;
     display: grid;
-    gap: 4px;
-    padding: 6px 6px 8px;
+    gap: 8px;
+    width: calc(100% - 40px);
+    margin: 0 20px;
+    padding: 10px 10px 12px;
     border: 0;
-    border-radius: 4px;
+    border-radius: 8px;
     background: #fff;
     color: #8a7a80;
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
-    rotate: -4deg;
-    box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.35);
+    rotate: -1.5deg;
+    box-shadow: 0 14px 28px -14px rgba(0, 0, 0, 0.35);
     transition:
       rotate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
       scale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .polaroid:active {
     rotate: 0deg;
-    scale: 1.05;
+    scale: 1.03;
   }
+  /* 只露出上部：金额、商家一般在这里。 */
   .polaroid img {
-    width: 84px;
-    height: 150px;
+    width: 100%;
+    height: 200px;
     object-fit: cover;
+    object-position: center 18%;
+    border-radius: 3px;
+  }
+  .lost {
+    margin: 0 22px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--label3);
   }
   .sticky {
-    flex: 1;
-    min-width: 0;
-    padding: 14px 14px 16px;
+    margin: 18px 24px 0;
+    padding: 14px 16px 16px;
     background: #fff4b8;
     color: #5f5330;
     border-radius: 4px 4px 18px 4px;
-    rotate: 1.5deg;
+    rotate: 1deg;
     box-shadow: 0 10px 20px -12px rgba(160, 130, 0, 0.5);
     font-size: 13px;
   }
@@ -309,17 +316,15 @@
   .sticky p {
     margin: 4px 0 0;
     font-weight: 600;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .sticky s {
     opacity: 0.55;
   }
   .where {
-    display: block;
-    margin: 12px auto 0;
-    width: fit-content;
-    color: inherit;
-    opacity: 0.75;
+    width: calc(100% - 32px);
+    margin: 16px 16px 0;
+    text-decoration: none;
   }
   .del {
     display: block;
@@ -338,8 +343,5 @@
   }
   .tail {
     height: calc(env(safe-area-inset-bottom) + 40px);
-  }
-  .sticky p {
-    overflow-wrap: anywhere;
   }
 </style>
