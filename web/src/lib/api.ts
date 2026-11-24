@@ -122,5 +122,8 @@ export const api = {
 };
 
 /** 截图直接当 `<img src>`，Cookie 自动带上。 */
+/** Apple 地图链接，iPhone 上直接打开地图 App。 */
+export const mapUrl = ({ lat, lon }: { lat: number; lon: number }, name: string | null) =>
+  `https://maps.apple.com/?ll=${lat},${lon}` + (name ? `&q=${encodeURIComponent(name)}` : "");
 export const imageUrl = (recognition: string) => `api/recognitions/${enc(recognition)}/image`;
 export const EXPORT_URL = "api/export.csv";

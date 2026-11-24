@@ -809,6 +809,16 @@ async fn web_recognition_export_and_shortcut_share_entries() {
     assert_eq!(status, 200);
     assert_eq!(r["first"]["account_id"], entry["account_id"]);
     assert_eq!(r["first"]["amount_cents"], entry["amount_cents"]);
+    assert_eq!(r["location"], Value::Null, "没补采位置");
+    s.http
+        .post(format!("{}/location", s.base))
+        .bearer_auth(TOKEN)
+        .json(&json!({ "draft": done["draft"], "lat": "31.5", "lon": "121.25" }))
+        .send()
+        .await
+        .unwrap();
+    let (_, r) = s.send(s.api(GET, &format!("recognitions/{rid}"))).await;
+    assert_eq!(r["location"], json!({ "lat": 31.5, "lon": 121.25 }));
     for _ in 0..50 {
         if s.api(GET, &format!("recognitions/{rid}/image"))
             .send()

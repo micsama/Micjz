@@ -2,7 +2,7 @@
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
   import { app, back, edit, loadRecognition, remove } from "../../lib/store.svelte";
-  import { imageUrl } from "../../lib/api";
+  import { imageUrl, mapUrl } from "../../lib/api";
   import { changes, fieldsOf, labelOf } from "../../lib/fields";
   import { dateTime } from "../../lib/format";
   import { view } from "../../lib/view";
@@ -69,6 +69,9 @@
         </div>
       {/if}
     </section>
+    {#if shot.location}
+      <a class="where" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">📍 在地图里看看</a>
+    {/if}
   {/if}
 
   <button class="del" onclick={() => (confirm = true)}>不要这笔了 🗑️</button>
@@ -310,6 +313,13 @@
   }
   .sticky s {
     opacity: 0.55;
+  }
+  .where {
+    display: block;
+    margin: 12px auto 0;
+    width: fit-content;
+    color: inherit;
+    opacity: 0.75;
   }
   .del {
     display: block;

@@ -3,7 +3,7 @@
   import ActionSheet from "../../ui/ActionSheet.svelte";
   import ImageViewer from "../../ui/ImageViewer.svelte";
   import { app, back, edit, loadRecognition, remove } from "../../lib/store.svelte";
-  import { imageUrl } from "../../lib/api";
+  import { imageUrl, mapUrl } from "../../lib/api";
   import { changes, fieldsOf, labelOf } from "../../lib/fields";
   import { dateTime } from "../../lib/format";
   import { view } from "../../lib/view";
@@ -73,6 +73,14 @@
           <span class="value"><s>{d.from}</s><span class="arrow">→</span>{d.to}</span>
         </div>
       {/each}
+      {#if shot.location}
+        <a class="row" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">
+          <span class="fi" style:--fc="var(--c3)"><Icon name="pin" size={18} weight={2.2} /></span>
+          <span class="label">位置</span>
+          <span class="value">在地图中查看</span>
+          <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
+        </a>
+      {/if}
     </div>
   {/if}
 
@@ -243,9 +251,11 @@
     font: inherit;
     font-size: 16px;
     text-align: left;
+    text-decoration: none;
     transition: background-color 0.35s;
   }
   button.row:active,
+  a.row:active,
   .shot:active {
     background: var(--press);
     transition: none;

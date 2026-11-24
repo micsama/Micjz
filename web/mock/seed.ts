@@ -168,7 +168,14 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
       e.recognition_id = id(at);
       const { kind, amount_cents, category_id, account_id, to_account_id, merchant, occurred_at, note, tag_ids } = e;
       const shown = { kind, amount_cents, category_id, account_id, to_account_id, merchant, occurred_at, note, tag_ids, ...first };
-      recognitions[e.recognition_id] = { id: e.recognition_id, outcome: "ok", reason: null, image: screenshot(shown), first: shown };
+      recognitions[e.recognition_id] = {
+        id: e.recognition_id,
+        outcome: "ok",
+        reason: null,
+        location: { lat: 31.2304, lon: 121.4737 },
+        image: screenshot(shown),
+        first: shown,
+      };
     }
     entries.push(e);
   }

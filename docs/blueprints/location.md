@@ -85,6 +85,10 @@ CHECK ((latitude IS NULL) = (longitude IS NULL))
 
 坐标存的是 WGS-84，以后要在国内地图上展示，需要在展示端转换成 GCJ-02。
 
+## 网页查看
+
+`GET /api/recognitions/:id` 多返回 `location: {lat, lon} | null`（见 [Web 接口](web-api.md) 3.6），账目详情在截图下面给一个「在地图中查看」，跳到 Apple 地图。
+
 ## 不做
 
-- 网页手填记位置、在网页上显示或修改位置、地名和逆地理编码、按地点统计。
+- 网页手填记位置、在网页上修改位置、地名和逆地理编码、按地点统计（见 [头脑风暴](../brainstorm/location.md)）。
