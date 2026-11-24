@@ -64,7 +64,7 @@ export interface Recognition {
   /** 不像支付页、识别出错的原因。 */
   reason: string | null;
   /** 入账后补采的手机位置（WGS-84），没采到为空。 */
-  location: { lat: number; lon: number } | null;
+  location: { lat: number; lon: number; city: string | null } | null;
   /** 最初显示的字段。金额可能没识别出来；分类、账户后来改名或删掉了就对不上，为空。 */
   first: Omit<Fields, "amount_cents" | "category_id" | "account_id"> & { amount_cents: number | null; category_id: number | null; account_id: number | null };
 }

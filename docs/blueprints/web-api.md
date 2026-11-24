@@ -156,7 +156,7 @@
   "id": "0193…",
   "outcome": "ok",
   "reason": null,
-  "location": { "lat": 31.2304, "lon": 121.4737 },
+  "location": { "lat": 31.2304, "lon": 121.4737, "city": "上海市" },
   "first": {
     "kind": "expense", "amount_cents": 3250, "category_id": 12, "account_id": 1, "to_account_id": null,
     "merchant": "瑞幸咖啡", "occurred_at": "2026-11-16T05:42:00Z", "note": "生椰拿铁", "tag_ids": []
@@ -167,7 +167,7 @@
 - `outcome`：`ok | rejected | error`；`reason` 是不像支付页或识别失败的原因，没有为 `null`。
 - `origin` 存的就是 id（v7 起，见 [表结构 v7](schema-7.md)），原样返回，分类、账户改名不影响。v7 之前的记录在升级时按当时的名字换成 id，对不上的 `category_id`、`account_id` 为 `null`（网页显示「当时的已不在」），标签直接去掉。
 - `amount_cents` 没识别出来为 `null`。
-- `location`：入账后快捷指令补采的手机位置（WGS-84，见 [位置蓝图](location.md)），没采到为 `null`。详情页据此给出 Apple 地图链接 `https://maps.apple.com/?ll=纬度,经度&q=商家`。
+- `location`：入账后快捷指令补采的手机位置（WGS-84，见 [位置蓝图](location.md)），没采到为 `null`；`city` 可能为 `null`。详情页据此给出 Apple 地图链接 `https://maps.apple.com/?ll=纬度,经度&q=商家`。
 - 不存在 404。
 
 ### 3.7 `GET /api/recognitions/:id/image`

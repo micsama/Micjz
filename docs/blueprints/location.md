@@ -1,6 +1,6 @@
 # 蓝图：截图记账后补采位置（表结构 v10）
 
-状态：已实现（2026-11-23），待实机验收。表结构版本 9 → 10。第一版只做快捷指令场景，网页手填不记位置。
+状态：已实现（2026-11-23），待实机验收。表结构版本 9 → 10，城市 10 → 11。第一版只做快捷指令场景，网页手填不记位置。
 
 ## 目标
 
@@ -40,8 +40,10 @@ done：
 鉴权和其他接口相同。请求体是 JSON，三个字段都是文本，和 `/step` 一致：
 
 ```json
-{ "draft": "<done 里的 draft>", "lat": "31.2304", "lon": "121.4737" }
+{ "draft": "<done 里的 draft>", "lat": "31.2304", "lon": "121.4737", "city": "上海市" }
 ```
+
+- `city` 是系统在手机上解析出的城市（不经第三方），按地点看账时分组用；可以省略。去掉首尾空白后为空或超过 100 字就当作没有，不影响坐标写入。
 
 - 解析 `draft` 拿到识别 ID。坐标必须两个都是数字，并且在范围内。
 - 写入条件：该识别已有账目（`entries.recognition_id`），并且还没写过位置。**重复请求保留第一次的有效坐标**：
@@ -61,18 +63,19 @@ done：
 -- recognitions 加两列，WGS-84；只有已入账的识别会有
 latitude  REAL CHECK (latitude  BETWEEN -90  AND 90),
 longitude REAL CHECK (longitude BETWEEN -180 AND 180),
+city      TEXT,   -- v11
 CHECK ((latitude IS NULL) = (longitude IS NULL))
 ```
 
-转换脚本 `deploy/db/10-location.sql` 加上这两列，旧记录都为空。
+转换脚本 `deploy/db/10-location.sql` 加经纬度，`deploy/db/11-location-city.sql` 加城市；旧记录都为空。
 
 ### 快捷指令
 
 在 `done` 分支的【显示通知】之后、【停止此快捷指令】之前，加上：
 
 1. 【如果】`resp` 的 `draft` 有任何值
-2. 　【获取当前位置】→【获取位置的详细信息】纬度、经度
-3. 　【获取 URL 内容】`base`/location，POST，JSON：`draft` / `lat` / `lon`
+2. 　【获取当前位置】→【获取位置的详细信息】纬度、经度、城市
+3. 　【获取 URL 内容】`base`/location，POST，JSON：`draft` / `lat` / `lon` / `city`
 
 同步更新 `shortcuts/build.py` 和 `shortcuts/README.md`，然后重新生成并导入一次。
 
@@ -87,7 +90,7 @@ CHECK ((latitude IS NULL) = (longitude IS NULL))
 
 ## 网页查看
 
-`GET /api/recognitions/:id` 多返回 `location: {lat, lon} | null`（见 [Web 接口](web-api.md) 3.6），账目详情在截图下面给一个「在地图中查看」，跳到 Apple 地图。
+`GET /api/recognitions/:id` 多返回 `location: {lat, lon, city} | null`（见 [Web 接口](web-api.md) 3.6），账目详情在截图下面显示城市（没有就显示「在地图中查看」），跳到 Apple 地图。
 
 ## 不做
 

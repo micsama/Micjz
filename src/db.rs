@@ -74,6 +74,7 @@ CREATE TABLE recognitions (
   -- 入账后快捷指令补采的手机位置（WGS-84），只有已入账的识别才有。
   latitude     REAL CHECK (latitude BETWEEN -90 AND 90),
   longitude    REAL CHECK (longitude BETWEEN -180 AND 180),
+  city         TEXT,
   CHECK ((latitude IS NULL) = (longitude IS NULL))
 ) STRICT;
 
@@ -264,13 +265,19 @@ impl Db {
     }
 
     /// 给已入账的识别写入补采的位置，只写第一次；返回是否已入账。
-    pub fn set_location(&self, draft_id: &str, lat: f64, lon: f64) -> rusqlite::Result<bool> {
+    pub fn set_location(
+        &self,
+        draft_id: &str,
+        lat: f64,
+        lon: f64,
+        city: Option<&str>,
+    ) -> rusqlite::Result<bool> {
         let conn = self.conn();
         conn.execute(
-            "UPDATE recognitions SET latitude = ?2, longitude = ?3
+            "UPDATE recognitions SET latitude = ?2, longitude = ?3, city = ?4
              WHERE draft_id = ?1 AND latitude IS NULL
                AND EXISTS (SELECT 1 FROM entries WHERE recognition_id = ?1)",
-            params![draft_id, lat, lon],
+            params![draft_id, lat, lon, city],
         )?;
         conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM entries WHERE recognition_id = ?1)",

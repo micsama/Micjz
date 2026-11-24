@@ -70,7 +70,7 @@
       {/if}
     </section>
     {#if shot.location}
-      <a class="where" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">📍 在地图里看看</a>
+      <a class="where" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">📍 {shot.location.city ?? "在地图里看看"}</a>
     {/if}
   {/if}
 

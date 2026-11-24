@@ -172,7 +172,7 @@ export function seed(now = new Date()): { entries: Entry[]; recognitions: Record
         id: e.recognition_id,
         outcome: "ok",
         reason: null,
-        location: { lat: 31.2304, lon: 121.4737 },
+        location: { lat: 31.2304, lon: 121.4737, city: "上海市" },
         image: screenshot(shown),
         first: shown,
       };

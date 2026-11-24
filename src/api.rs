@@ -291,6 +291,9 @@ struct LocationRequest {
     draft: String,
     lat: String,
     lon: String,
+    /// 系统在手机上解析的城市；可省略，空或过长当作没有。
+    #[serde(default)]
+    city: String,
 }
 
 /// 入账后补采的位置：只写已入账的识别，只写第一次。快捷指令不读响应。
@@ -311,7 +314,8 @@ async fn location_handler(
     let (Some(lat), Some(lon)) = (coord(&req.lat, 90.0), coord(&req.lon, 180.0)) else {
         return Err(bad_request("坐标无效"));
     };
-    let saved = state.db.set_location(&id, lat, lon).map_err(|e| {
+    let city = Some(req.city.trim()).filter(|c| !c.is_empty() && c.chars().count() <= 100);
+    let saved = state.db.set_location(&id, lat, lon, city).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("保存位置失败：{e}"),

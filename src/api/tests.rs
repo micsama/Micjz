@@ -202,6 +202,11 @@ async fn location_only_for_confirmed_and_first_wins() {
         assert_eq!(r.status(), 400, "{lat},{lon}");
     }
     let r = post(&done["draft"], " 31.2304 ", "121.4737").await.unwrap();
+    assert_eq!(
+        s.count("SELECT count(*) FROM recognitions WHERE latitude IS NOT NULL AND city IS NULL"),
+        1,
+        "不带城市也能写坐标"
+    );
     assert_eq!(r.status(), 204);
     let r = post(&done["draft"], "0", "0").await.unwrap();
     assert_eq!(r.status(), 204, "重复补采不报错");
@@ -813,12 +818,17 @@ async fn web_recognition_export_and_shortcut_share_entries() {
     s.http
         .post(format!("{}/location", s.base))
         .bearer_auth(TOKEN)
-        .json(&json!({ "draft": done["draft"], "lat": "31.5", "lon": "121.25" }))
+        .json(
+            &json!({ "draft": done["draft"], "lat": "31.5", "lon": "121.25", "city": " 上海市 " }),
+        )
         .send()
         .await
         .unwrap();
     let (_, r) = s.send(s.api(GET, &format!("recognitions/{rid}"))).await;
-    assert_eq!(r["location"], json!({ "lat": 31.5, "lon": 121.25 }));
+    assert_eq!(
+        r["location"],
+        json!({ "lat": 31.5, "lon": 121.25, "city": "上海市" })
+    );
     for _ in 0..50 {
         if s.api(GET, &format!("recognitions/{rid}/image"))
             .send()

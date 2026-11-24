@@ -214,6 +214,7 @@ def build(base: str, token: str) -> None:
                 ("draft", text(var("draft")), 0),
                 ("lat", detail("Latitude"), 0),
                 ("lon", detail("Longitude"), 0),
+                ("city", detail("City"), 0),
             ],
         )
 

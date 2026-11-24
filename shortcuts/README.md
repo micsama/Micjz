@@ -42,8 +42,8 @@ token 须与服务端 `config.toml` 的 `token` 一致；不传 `--token` 时读
    - 【获取字典值】`message`（`resp`）→【显示通知】
    - 【获取字典值】`draft`（`resp`）→【设定变量】`draft`
    - 【如果】`draft` 有任何值（入账成功才非空），补采位置，失败只丢位置：
-     - 【获取当前位置】→【获取位置的详细信息】纬度、经度（各一个动作）
-     - 【获取 URL 内容】`base`/location，POST，头部同上，JSON 文本字段 `draft` / `lat` / `lon`；不读响应
+     - 【获取当前位置】→【获取位置的详细信息】纬度、经度、城市（各一个动作）
+     - 【获取 URL 内容】`base`/location，POST，头部同上，JSON 文本字段 `draft` / `lat` / `lon` / `city`；不读响应
    - 【停止此快捷指令】
 10. 　【如果】`type` 是 `choose`
     - 【获取字典值】`options`（`resp`）→【从列表中选取】，提示：`summary` →【设定变量】`value`

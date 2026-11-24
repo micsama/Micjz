@@ -603,19 +603,36 @@ async fn recognition(
 ) -> Result<Json<Value>, WebError> {
     let id = path_id(p)?;
     let conn = s.db.conn();
-    type Row = (String, Option<String>, String, Option<f64>, Option<f64>);
-    let (outcome, reason, origin, lat, lon): Row = conn
+    type Row = (
+        String,
+        Option<String>,
+        String,
+        Option<f64>,
+        Option<f64>,
+        Option<String>,
+    );
+    let (outcome, reason, origin, lat, lon, city): Row = conn
         .query_row(
-            "SELECT outcome,reason,origin,latitude,longitude FROM recognitions WHERE draft_id=?1",
+            "SELECT outcome,reason,origin,latitude,longitude,city FROM recognitions
+             WHERE draft_id=?1",
             [&id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )
         .optional()?
         .ok_or_else(|| missing("识别记录"))?;
     let d: Origin = serde_json::from_str(&origin).map_err(internal)?;
     Ok(Json(json!({
         "id":id, "outcome":outcome, "reason":reason,
-        "location": lat.zip(lon).map(|(lat, lon)| json!({"lat":lat, "lon":lon})),
+        "location": lat.zip(lon).map(|(lat, lon)| json!({"lat":lat, "lon":lon, "city":city})),
         "first":{
             "kind":d.kind, "amount_cents":d.amount_cents, "category_id":d.category_id,
             "account_id":d.account_id, "to_account_id":null, "merchant":d.merchant,
