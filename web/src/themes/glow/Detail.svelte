@@ -57,15 +57,15 @@
   {#if shot}
     <h3 class="cap">截图</h3>
     <div class="group">
-      <button class="shot" onclick={() => (viewing = true)} disabled={lost}>
-        {#if !lost}<img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />{/if}
-        <span class="shot-text">
-          {#if diff.length}<b>改过 {diff.length} 处</b><small>最初显示 → 现在</small>{/if}
-          <span class="view">
-            {#if lost}截图没留存下来{:else}<Icon name="photo" size={15} />查看截图{/if}
-          </span>
-        </span>
-      </button>
+      {#if lost}
+        <div class="row lost"><span class="label">截图没留存下来</span></div>
+      {:else}
+        <button class="shot" onclick={() => (viewing = true)}>
+          <img src={imageUrl(shot.id)} alt="支付截图" onerror={() => (lost = true)} />
+          <span class="chip"><Icon name="photo" size={14} />查看原图</span>
+        </button>
+      {/if}
+      {#if diff.length}<p class="diff-cap">改过 {diff.length} 处 · 最初识别 → 现在</p>{/if}
       {#each diff as d (d.def.key)}
         <div class="row diff">
           <span class="fi" style:--fc="var(--c7)"><Icon name={d.def.icon} size={18} weight={2.2} /></span>
@@ -310,44 +310,43 @@
   }
   .shot {
     position: relative;
-    display: flex;
-    gap: 14px;
+    display: block;
     width: 100%;
-    padding: 12px 14px;
+    height: 220px;
+    padding: 0;
     border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    text-align: left;
+    background: var(--press);
+    overflow: hidden;
   }
   .shot img {
-    width: 62px;
-    height: 134px;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
-    border-radius: 9px;
-    box-shadow:
-      0 0 0 0.5px var(--sep),
-      0 6px 16px -6px rgba(0, 0, 0, 0.3);
+    object-position: center 18%;
+    mask-image: linear-gradient(to bottom, #000 70%, transparent);
   }
-  .shot-text {
-    display: grid;
-    align-content: center;
-    gap: 4px;
-  }
-  .shot-text b {
-    font-size: 16px;
-  }
-  .shot-text small {
-    font-size: 13px;
-    color: var(--label2);
-  }
-  .view {
+  .chip {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
     display: flex;
     align-items: center;
     gap: 5px;
-    margin-top: 6px;
-    font-size: 14px;
-    color: var(--tint);
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(12px);
+    color: #fff;
+    font-size: 13px;
+  }
+  .diff-cap {
+    margin: 0;
+    padding: 10px 16px 2px;
+    font-size: 13px;
+    color: var(--label2);
+  }
+  .lost .label {
+    color: var(--label3);
   }
   .del {
     justify-content: center;
