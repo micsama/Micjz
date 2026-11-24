@@ -1,4 +1,5 @@
 // 和服务器对话的唯一出口：契约见 docs/blueprints/web-api.md。只管收发和把失败变成 ApiError，失败后怎么办由 store 决定。
+import { toGcj } from "./geo";
 import type { Account, Catalog, Category, Entry, Recognition, Tag } from "./types";
 
 /** 服务器给的失败；`status` 为 0 是没连上。`message` 是给人看的那句，直接显示。 */
@@ -123,7 +124,9 @@ export const api = {
 
 /** 截图直接当 `<img src>`，Cookie 自动带上。 */
 /** Apple 地图链接，iPhone 上直接打开地图 App。 */
-export const mapUrl = ({ lat, lon }: { lat: number; lon: number }, name: string | null) =>
-  `https://maps.apple.com/?ll=${lat},${lon}` + (name ? `&q=${encodeURIComponent(name)}` : "");
+export function mapUrl({ lat, lon }: { lat: number; lon: number }, name: string | null) {
+  const [y, x] = toGcj(lat, lon);
+  return `https://maps.apple.com/?ll=${y.toFixed(6)},${x.toFixed(6)}` + (name ? `&q=${encodeURIComponent(name)}` : "");
+}
 export const imageUrl = (recognition: string) => `api/recognitions/${enc(recognition)}/image`;
 export const EXPORT_URL = "api/export.csv";
