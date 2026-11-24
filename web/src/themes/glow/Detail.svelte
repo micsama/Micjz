@@ -76,7 +76,7 @@
       {#if shot.location}
         <a class="row" href={mapUrl(shot.location, entry.merchant)} target="_blank" rel="noreferrer">
           <span class="fi" style:--fc="var(--c3)"><Icon name="pin" size={18} weight={2.2} /></span>
-          <span class="label">位置</span>
+          <span class="label">记账位置</span>
           <span class="value">{shot.location.city ?? "在地图中查看"}</span>
           <span class="chev"><Icon name="chevron-right" size={14} weight={2.6} /></span>
         </a>
